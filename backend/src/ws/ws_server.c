@@ -175,6 +175,11 @@ void ws_server_broadcast(ws_server_t *ws, const char *json) {
     }
 
     pthread_mutex_unlock(&ws->lock);
+
+    /* lws_callback_on_writable() alone doesn't wake a poll() blocked in
+     * another thread's lws_service() call -- without this, the writeable
+     * callback only fires once that thread's poll timeout next elapses. */
+    lws_cancel_service(ws->context);
 }
 
 void ws_server_stop(ws_server_t *ws) {
