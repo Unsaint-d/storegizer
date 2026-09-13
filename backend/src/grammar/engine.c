@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "classify.h"
+#include "../config/config.h"
 
 #include <pthread.h>
 #include <sqlite3.h>
@@ -34,6 +35,9 @@ struct grammar_engine {
     pthread_mutex_t lock;
     pthread_t ticker_thread;
     volatile int stop_flag;
+
+    server_config_t config;
+    char config_path[512];
 
     int64_t work_session_id; /* 0 = none open or frozen */
     char work_session_status[16]; /* "open" | "frozen" */
@@ -118,18 +122,6 @@ static int64_t create_item_with_barcode(db_t *db, const char *barcode, int64_t w
     sqlite3_finalize(stmt);
     fprintf(stderr, "grammar: new item #%lld created for unknown barcode %s\n", (long long) id, barcode);
     return id;
-}
-
-static int get_setting_int(db_t *db, const char *key, int fallback) {
-    sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db->conn, "SELECT value FROM settings WHERE key = ?", -1, &stmt, NULL);
-    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
-    int value = fallback;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        value = atoi((const char *) sqlite3_column_text(stmt, 0));
-    }
-    sqlite3_finalize(stmt);
-    return value;
 }
 
 static int get_bin_stock_quantity(db_t *db, int64_t bin_id, int64_t item_id) {
@@ -338,7 +330,7 @@ static void *ticker_thread_fn(void *arg) {
         pthread_mutex_lock(&e->lock);
 
         if (e->work_session_id != 0 && strcmp(e->work_session_status, "open") == 0) {
-            int timeout = get_setting_int(e->db, "scan_op_timeout_seconds", 10);
+            int timeout = e->config.scan_op_timeout_seconds;
             time_t now = time(NULL);
 
             int closed_any = 0;
@@ -381,11 +373,14 @@ static void *ticker_thread_fn(void *arg) {
 
 /* ---- public API ---- */
 
-grammar_engine_t *grammar_engine_create(db_t *db, ws_server_t *ws) {
+grammar_engine_t *grammar_engine_create(db_t *db, ws_server_t *ws, const char *config_path) {
     grammar_engine_t *e = calloc(1, sizeof(grammar_engine_t));
     e->db = db;
     e->ws = ws;
     pthread_mutex_init(&e->lock, NULL);
+
+    strncpy(e->config_path, config_path, sizeof(e->config_path) - 1);
+    config_load(&e->config, config_path);
 
     /* Pick up a session left open/frozen by a previous (possibly crashed)
      * run -- the buffer is durable, so this is just re-attaching, not
@@ -937,4 +932,31 @@ char *grammar_engine_status_json(grammar_engine_t *e) {
 
     pthread_mutex_unlock(&e->lock);
     return buf;
+}
+
+char *grammar_engine_settings_json(grammar_engine_t *e) {
+    pthread_mutex_lock(&e->lock);
+    char *buf = malloc(128);
+    snprintf(buf, 128, "{\"scan_op_timeout_seconds\":%d}", e->config.scan_op_timeout_seconds);
+    pthread_mutex_unlock(&e->lock);
+    return buf;
+}
+
+int grammar_engine_update_setting(grammar_engine_t *e, const char *key, int value) {
+    pthread_mutex_lock(&e->lock);
+
+    if (strcmp(key, "scan_op_timeout_seconds") == 0) {
+        if (value <= 0) {
+            pthread_mutex_unlock(&e->lock);
+            return -1;
+        }
+        e->config.scan_op_timeout_seconds = value;
+    } else {
+        pthread_mutex_unlock(&e->lock);
+        return -1;
+    }
+
+    int rc = config_save(&e->config, e->config_path);
+    pthread_mutex_unlock(&e->lock);
+    return rc;
 }

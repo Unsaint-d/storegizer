@@ -84,9 +84,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     via_pack_item_id   INTEGER REFERENCES items(id)
 );
 
-CREATE TABLE IF NOT EXISTS settings (
-    key    TEXT PRIMARY KEY,
-    value  TEXT NOT NULL
-);
-
-INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_op_timeout_seconds', '10');
+-- Admin-editable server settings (scan_op_timeout_seconds and future
+-- additions) live in a JSON config file (STOREGIZER_CONFIG_PATH), not
+-- here -- see backend/src/config/config.h. That's server configuration,
+-- not warehouse data.

@@ -201,33 +201,6 @@ static char *list_bins_json(sqlite3 *conn) {
     return buf;
 }
 
-static char *list_settings_json(sqlite3 *conn) {
-    sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(conn, "SELECT key, value FROM settings ORDER BY key", -1, &stmt, NULL);
-
-    size_t cap = 256, len = 0;
-    char *buf = malloc(cap);
-    buf = json_append(buf, &len, &cap, "[");
-
-    int first = 1;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        char *key = json_escape((const char *) sqlite3_column_text(stmt, 0));
-        char *value = json_escape((const char *) sqlite3_column_text(stmt, 1));
-
-        char entry[512];
-        snprintf(entry, sizeof(entry), "%s{\"key\":\"%s\",\"value\":\"%s\"}", first ? "" : ",", key, value);
-        free(key);
-        free(value);
-
-        buf = json_append(buf, &len, &cap, entry);
-        first = 0;
-    }
-
-    sqlite3_finalize(stmt);
-    buf = json_append(buf, &len, &cap, "]");
-    return buf;
-}
-
 static void trim_trailing_whitespace(char *s) {
     size_t n = strlen(s);
     while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t')) {
@@ -282,27 +255,19 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         free(json);
 
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/settings") == 0) {
-        char *json = list_settings_json(cfg->db->conn);
+        char *json = grammar_engine_settings_json(cfg->engine);
         result = send_json(connection, 200, json);
         free(json);
 
     } else if (strcmp(method, "PUT") == 0 && strncmp(url, "/api/settings/", strlen("/api/settings/")) == 0 &&
                strlen(url) > strlen("/api/settings/")) {
         const char *key = url + strlen("/api/settings/");
-        char *value = json_get_string(body, "value");
-        if (!value || key[0] == '\0') {
-            free(value);
-            result = send_json(connection, 400, "{\"error\":\"value is required\"}");
+        long value = json_get_int(body, "value", -1);
+        if (value <= 0) {
+            result = send_json(connection, 400, "{\"error\":\"a positive integer value is required\"}");
+        } else if (grammar_engine_update_setting(cfg->engine, key, (int) value) != 0) {
+            result = send_json(connection, 400, "{\"error\":\"unknown setting, or failed to persist it\"}");
         } else {
-            sqlite3_stmt *stmt;
-            sqlite3_prepare_v2(cfg->db->conn, "INSERT INTO settings (key, value) VALUES (?, ?) "
-                                               "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                                -1, &stmt, NULL);
-            sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 2, value, -1, SQLITE_TRANSIENT);
-            sqlite3_step(stmt);
-            sqlite3_finalize(stmt);
-            free(value);
             result = send_json(connection, 200, "{\"status\":\"ok\"}");
         }
 

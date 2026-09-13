@@ -14,6 +14,7 @@ RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 
 ENV STOREGIZER_DB_PATH=/data/storegizer.db
 ENV STOREGIZER_SCHEMA_PATH=/app/sql/schema.sql
+ENV STOREGIZER_CONFIG_PATH=/data/config.json
 ENV HTTP_PORT=8080
 ENV WS_PORT=8081
 

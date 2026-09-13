@@ -34,6 +34,7 @@ int main(void) {
 
     const char *db_path = getenv_default("STOREGIZER_DB_PATH", "./data/storegizer.db");
     const char *schema_path = getenv_default("STOREGIZER_SCHEMA_PATH", "./sql/schema.sql");
+    const char *config_path = getenv_default("STOREGIZER_CONFIG_PATH", "./data/config.json");
     int http_port = atoi(getenv_default("HTTP_PORT", "8080"));
     int ws_port = atoi(getenv_default("WS_PORT", "8081"));
     const char *scanner_device = getenv("SCANNER_DEVICE"); /* e.g. /dev/input/event5 */
@@ -51,7 +52,7 @@ int main(void) {
         return 1;
     }
 
-    grammar_engine_t *engine = grammar_engine_create(&db, ws);
+    grammar_engine_t *engine = grammar_engine_create(&db, ws, config_path);
 
     scanner_t *scanner = NULL;
     if (scanner_device) {

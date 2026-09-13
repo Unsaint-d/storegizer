@@ -8,7 +8,10 @@
 
 typedef struct grammar_engine grammar_engine_t;
 
-grammar_engine_t *grammar_engine_create(db_t *db, ws_server_t *ws);
+/* config_path: JSON file backing admin-editable settings (§8 of the
+ * grammar doc) -- server configuration, not warehouse data, so it lives on
+ * disk next to the rest of the deployment's config rather than in SQLite. */
+grammar_engine_t *grammar_engine_create(db_t *db, ws_server_t *ws, const char *config_path);
 void grammar_engine_destroy(grammar_engine_t *engine);
 
 /* Entry point for every classified scan, from the real evdev scanner or the
@@ -62,5 +65,13 @@ int64_t grammar_engine_create_bin(grammar_engine_t *engine, const char *label, c
 /* JSON status: work session state, current focus, open (not yet closed)
  * bin-sessions, and the buffered operations recorded so far. Caller frees. */
 char *grammar_engine_status_json(grammar_engine_t *engine);
+
+/* Admin-editable settings (docs/scanning-grammar.md §8), file-backed --
+ * see config.h. JSON is the current config, e.g. {"scan_op_timeout_seconds":
+ * 10}. Caller frees. update_setting returns 0 on success, -1 if key isn't a
+ * known setting or the file couldn't be written (config stays applied in
+ * memory even if the write fails, so it isn't silently lost until restart). */
+char *grammar_engine_settings_json(grammar_engine_t *engine);
+int grammar_engine_update_setting(grammar_engine_t *engine, const char *key, int value);
 
 #endif

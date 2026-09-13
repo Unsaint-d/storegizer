@@ -18,6 +18,7 @@ add_executable(storegizer_backend
     src/scanner/scanner_evdev.c
     src/grammar/classify.c
     src/grammar/engine.c
+    src/config/config.c
 )
 
 target_include_directories(storegizer_backend PRIVATE
