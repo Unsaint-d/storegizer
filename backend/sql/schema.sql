@@ -11,10 +11,29 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+-- Категории предметов: произвольная глубина ("Крепёж" -> "Винт" -> "М2" ->
+-- "Потайной"), adjacency list. У предмета -- одна категория (её самый
+-- глубокий узел; путь целиком получается подъёмом по parent_id).
+CREATE TABLE IF NOT EXISTS categories (
+    id                        INTEGER PRIMARY KEY,
+    parent_id                 INTEGER REFERENCES categories(id), -- NULL = верхний уровень
+    name                      TEXT NOT NULL,
+    created_in_work_session_id INTEGER REFERENCES work_sessions(id)
+);
+
+-- Не более одного узла с одним именем у одного родителя (и отдельно -- на
+-- верхнем уровне, где parent_id IS NULL и обычный UNIQUE(parent_id, name)
+-- не сработал бы, так как NULL <> NULL).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_unique_under_parent
+    ON categories (parent_id, name) WHERE parent_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_unique_top_level
+    ON categories (name) WHERE parent_id IS NULL;
+
 CREATE TABLE IF NOT EXISTS items (
     id                        INTEGER PRIMARY KEY,
     barcode                   TEXT UNIQUE, -- NULL пока не отсканирован/не задан вручную
     name                      TEXT NOT NULL DEFAULT '',
+    category_id               INTEGER REFERENCES categories(id), -- NULL = без категории
     icon_emoji                TEXT,
     icon_image_path           TEXT,
     created_in_work_session_id INTEGER REFERENCES work_sessions(id) -- см. buffered_operations: создание откатывается вместе с сессией

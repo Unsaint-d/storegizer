@@ -39,18 +39,22 @@ erDiagram
     BINS |o--o| ITEMS : "mono_item_id (только mono)"
     ITEMS ||--o{ ITEM_PACK_CONTENTS : "pack_item_id"
     ITEMS ||--o{ ITEM_PACK_CONTENTS : "child_item_id"
+    CATEGORIES |o--o{ CATEGORIES : "parent_id"
+    CATEGORIES |o--o{ ITEMS : "category_id"
     WORK_SESSIONS ||--o{ BUFFERED_OPERATIONS : "содержит"
     ITEMS ||--o{ BUFFERED_OPERATIONS : "item_id"
     BINS ||--o{ BUFFERED_OPERATIONS : "bin_id"
     ITEMS ||--o{ AUDIT_LOG : "item_id"
-    BINS ||--o{ AUDIT_LOG : "from_bin_id / to_bin_id"
+    BINS ||--o{ AUDIT_LOG : "bin_id"
 
     ITEMS {
         int id PK
         text barcode "нередактируемый, может быть NULL до первого скана"
         text name
+        int category_id FK "NULL = без категории"
         text icon_emoji
         text icon_image_path
+        int created_in_work_session_id FK "создание откатывается вместе с сессией"
     }
     BINS {
         int id PK
@@ -60,6 +64,7 @@ erDiagram
         int mono_item_id FK "только для kind=mono"
         text icon_emoji
         text icon_image_path
+        int created_in_work_session_id FK
     }
     BIN_STOCK {
         int bin_id FK
@@ -70,6 +75,12 @@ erDiagram
         int pack_item_id FK "предмет-упаковка"
         int child_item_id FK "дочерний предмет"
         int quantity "штук дочернего на 1 упаковку"
+    }
+    CATEGORIES {
+        int id PK
+        int parent_id FK "NULL = верхний уровень"
+        text name
+        int created_in_work_session_id FK
     }
     WORK_SESSIONS {
         int id PK
@@ -92,11 +103,10 @@ erDiagram
     AUDIT_LOG {
         int id PK
         int ts
-        text operation
+        text op_type "add | remove"
         int item_id FK
+        int bin_id FK
         int quantity
-        int from_bin_id FK
-        int to_bin_id FK
         int via_pack_item_id FK
     }
 ```
@@ -104,6 +114,19 @@ erDiagram
 Ключевое: **предмет** — это «тип + количество» (без серийного учёта), а
 **ячейка** — либо `mono` (жёстко привязана к одному типу предмета), либо
 `poly` (хранит разные типы). Количество живёт в `BIN_STOCK`, не в `ITEMS`.
+
+### Категории
+
+У предмета — одна категория произвольной глубины: «Крепёж → Винт → М2 →
+Потайной» — adjacency list (`parent_id`), не отдельная таблица на каждый
+уровень вложенности. Указывается ссылкой на её самый глубокий узел
+(`items.category_id`); путь целиком получается подъёмом по `parent_id`.
+
+Создание категории — тем же путём, что и ячейки/предметы: через панель
+внутри сессии работы, единым действием на весь путь сразу
+(`POST /api/session/categories` с массивом имён) — уже существующие
+сегменты пути переиспользуются, создаются только недостающие. Как и
+ячейки/предметы, откатывается вместе с сессией.
 
 ### Упаковки (вложенные предметы)
 

@@ -58,9 +58,17 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *engine, int64_t o
  * The new row is tagged with the work session that created it (as is an
  * item auto-created for an unrecognized barcode during a scan) -- rolling
  * that session back deletes it again, same as any other in-session change. */
-int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode);
+int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode, int64_t category_id);
 int64_t grammar_engine_create_bin(grammar_engine_t *engine, const char *label, const char *kind,
                                    const char *barcode_suffix, int64_t mono_item_id);
+
+/* Category path ("Крепёж" -> "Винт" -> "М2" -> "Потайной"): finds-or-creates
+ * each segment under the previous one (existing prefix segments are reused,
+ * not duplicated) and returns the id of the last one -- the id an item's
+ * category_id points to. Same session-gating and rollback behavior as
+ * create_item/create_bin. Returns -1 if no session is open, -2 if path_len
+ * is 0 or any segment is empty. */
+int64_t grammar_engine_ensure_category_path(grammar_engine_t *engine, const char **path, int path_len);
 
 /* JSON status: work session state, current focus, open (not yet closed)
  * bin-sessions, and the buffered operations recorded so far. Caller frees. */

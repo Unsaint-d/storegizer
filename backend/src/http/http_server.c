@@ -118,6 +118,80 @@ static long json_get_int(const char *body, const char *key, long fallback) {
     return value;
 }
 
+/* Parses "key": ["a", "b", ...] -- a flat array of strings, same
+ * deliberately-minimal philosophy as json_get_string/json_get_int (no
+ * nesting, no general escaping beyond skipping \"). *out_count is 0 and
+ * NULL is returned if the key is missing or isn't an array. Caller frees
+ * each string and the array itself. */
+static char **json_get_string_array(const char *body, const char *key, int *out_count) {
+    *out_count = 0;
+
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *p = strstr(body, pattern);
+    if (!p) {
+        return NULL;
+    }
+    p = strchr(p + strlen(pattern), ':');
+    if (!p) {
+        return NULL;
+    }
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\n') {
+        p++;
+    }
+    if (*p != '[') {
+        return NULL;
+    }
+    p++;
+
+    char **items = NULL;
+    int count = 0, cap = 0;
+
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == ',') {
+            p++;
+        }
+        if (*p == ']' || *p == '\0') {
+            break;
+        }
+        if (*p != '"') {
+            break; /* malformed -- stop rather than misparse */
+        }
+        p++;
+        const char *start = p;
+        while (*p && *p != '"') {
+            if (*p == '\\' && *(p + 1)) {
+                p++;
+            }
+            p++;
+        }
+        size_t len = (size_t) (p - start);
+        char *s = malloc(len + 1);
+        memcpy(s, start, len);
+        s[len] = '\0';
+        if (*p == '"') {
+            p++;
+        }
+
+        if (count >= cap) {
+            cap = cap ? cap * 2 : 4;
+            items = realloc(items, (size_t) cap * sizeof(char *));
+        }
+        items[count++] = s;
+    }
+
+    *out_count = count;
+    return items;
+}
+
+static void free_string_array(char **items, int count) {
+    for (int i = 0; i < count; i++) {
+        free(items[i]);
+    }
+    free(items);
+}
+
 static int try_parse_id_suffix(const char *url, const char *prefix, int64_t *out_id) {
     size_t prefix_len = strlen(prefix);
     if (strncmp(url, prefix, prefix_len) != 0) {
@@ -138,7 +212,7 @@ static int try_parse_id_suffix(const char *url, const char *prefix, int64_t *out
 
 static char *list_items_json(sqlite3 *conn) {
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(conn, "SELECT id, barcode, name FROM items ORDER BY id", -1, &stmt, NULL);
+    sqlite3_prepare_v2(conn, "SELECT id, barcode, name, category_id FROM items ORDER BY id", -1, &stmt, NULL);
 
     size_t cap = 256, len = 0;
     char *buf = malloc(cap);
@@ -148,10 +222,16 @@ static char *list_items_json(sqlite3 *conn) {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         char *barcode = json_escape((const char *) sqlite3_column_text(stmt, 1));
         char *name = json_escape((const char *) sqlite3_column_text(stmt, 2));
+        char category_id[32];
+        if (sqlite3_column_type(stmt, 3) == SQLITE_NULL) {
+            snprintf(category_id, sizeof(category_id), "null");
+        } else {
+            snprintf(category_id, sizeof(category_id), "%lld", (long long) sqlite3_column_int64(stmt, 3));
+        }
 
         char entry[1024];
-        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"barcode\":\"%s\",\"name\":\"%s\"}",
-                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), barcode, name);
+        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"barcode\":\"%s\",\"name\":\"%s\",\"category_id\":%s}",
+                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), barcode, name, category_id);
         free(barcode);
         free(name);
 
@@ -191,6 +271,41 @@ static char *list_bins_json(sqlite3 *conn) {
         free(barcode);
         free(label);
         free(kind);
+
+        buf = json_append(buf, &len, &cap, entry);
+        first = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    buf = json_append(buf, &len, &cap, "]");
+    return buf;
+}
+
+/* Flat list, id/parent_id/name -- the frontend builds the tree (and any
+ * "Крепёж -> Винт -> М2" path strings) client-side rather than have the
+ * backend recompute paths per request. */
+static char *list_categories_json(sqlite3 *conn) {
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(conn, "SELECT id, parent_id, name FROM categories ORDER BY id", -1, &stmt, NULL);
+
+    size_t cap = 256, len = 0;
+    char *buf = malloc(cap);
+    buf = json_append(buf, &len, &cap, "[");
+
+    int first = 1;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        char *name = json_escape((const char *) sqlite3_column_text(stmt, 2));
+        char parent_id[32];
+        if (sqlite3_column_type(stmt, 1) == SQLITE_NULL) {
+            snprintf(parent_id, sizeof(parent_id), "null");
+        } else {
+            snprintf(parent_id, sizeof(parent_id), "%lld", (long long) sqlite3_column_int64(stmt, 1));
+        }
+
+        char entry[1024];
+        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"parent_id\":%s,\"name\":\"%s\"}",
+                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), parent_id, name);
+        free(name);
 
         buf = json_append(buf, &len, &cap, entry);
         first = 0;
@@ -251,6 +366,11 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
 
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/bins") == 0) {
         char *json = list_bins_json(cfg->db->conn);
+        result = send_json(connection, 200, json);
+        free(json);
+
+    } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/categories") == 0) {
+        char *json = list_categories_json(cfg->db->conn);
         result = send_json(connection, 200, json);
         free(json);
 
@@ -353,14 +473,15 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
          * separate, later work. */
         char *name = json_get_string(body, "name");
         char *barcode = json_get_string(body, "barcode");
+        long category_id = json_get_int(body, "category_id", 0);
         if (!name) {
             result = send_json(connection, 400, "{\"error\":\"name is required\"}");
         } else {
-            int64_t id = grammar_engine_create_item(cfg->engine, name, barcode);
+            int64_t id = grammar_engine_create_item(cfg->engine, name, barcode, category_id);
             if (id == -1) {
                 result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
             } else if (id == -2) {
-                result = send_json(connection, 409, "{\"error\":\"barcode already in use\"}");
+                result = send_json(connection, 409, "{\"error\":\"duplicate barcode, or category_id doesn't exist\"}");
             } else {
                 char resp[64];
                 snprintf(resp, sizeof(resp), "{\"id\":%lld}", (long long) id);
@@ -369,6 +490,26 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         }
         free(name);
         free(barcode);
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/categories") == 0) {
+        int path_len = 0;
+        char **path = json_get_string_array(body, "path", &path_len);
+
+        if (path_len == 0) {
+            result = send_json(connection, 400, "{\"error\":\"path (non-empty array of names) is required\"}");
+        } else {
+            int64_t id = grammar_engine_ensure_category_path(cfg->engine, (const char **) path, path_len);
+            if (id == -1) {
+                result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+            } else if (id == -2) {
+                result = send_json(connection, 400, "{\"error\":\"path segments must be non-empty\"}");
+            } else {
+                char resp[64];
+                snprintf(resp, sizeof(resp), "{\"id\":%lld}", (long long) id);
+                result = send_json(connection, 200, resp);
+            }
+        }
+        free_string_array(path, path_len);
 
     } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/bins") == 0) {
         char *label = json_get_string(body, "label");

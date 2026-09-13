@@ -607,11 +607,15 @@ int grammar_engine_rollback_session(grammar_engine_t *e) {
 
     /* Full undo, not just "don't apply": already-buffered operations from
      * closed bin-sessions earlier in this session are deleted too, along
-     * with any bin/item created from the panel or auto-created for an
-     * unrecognized item barcode while this session was open -- none of it
+     * with any bin/item/category created from the panel or auto-created for
+     * an unrecognized item barcode while this session was open -- none of it
      * would exist if not for this session. Order matters for foreign keys:
      * buffered_operations (references bins/items) before bins (references
-     * items via mono_item_id) before items. */
+     * items via mono_item_id) before items (references categories) before
+     * categories. Categories are self-referencing (parent_id), so a single
+     * DELETE can violate the FK if a parent created this session is visited
+     * before its child -- delete leaf-first, repeatedly, until nothing this
+     * session created is left. */
     sqlite3_exec(e->db->conn, "BEGIN", NULL, NULL, NULL);
 
     sqlite3_stmt *stmt;
@@ -629,6 +633,20 @@ int grammar_engine_rollback_session(grammar_engine_t *e) {
     sqlite3_bind_int64(stmt, 1, e->work_session_id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+
+    for (int guard = 0; guard < 64; guard++) {
+        sqlite3_prepare_v2(e->db->conn,
+                            "DELETE FROM categories WHERE created_in_work_session_id = ? "
+                            "AND id NOT IN (SELECT DISTINCT parent_id FROM categories WHERE parent_id IS NOT NULL)",
+                            -1, &stmt, NULL);
+        sqlite3_bind_int64(stmt, 1, e->work_session_id);
+        sqlite3_step(stmt);
+        int changed = sqlite3_changes(e->db->conn);
+        sqlite3_finalize(stmt);
+        if (changed == 0) {
+            break;
+        }
+    }
 
     sqlite3_prepare_v2(e->db->conn, "UPDATE work_sessions SET status = 'rolled_back', closed_at = ? WHERE id = ?", -1, &stmt, NULL);
     sqlite3_bind_int64(stmt, 1, (sqlite3_int64) time(NULL));
@@ -730,7 +748,7 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *e, int64_t operat
     return -1;
 }
 
-int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const char *barcode) {
+int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const char *barcode, int64_t category_id) {
     pthread_mutex_lock(&e->lock);
     if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
         pthread_mutex_unlock(&e->lock);
@@ -738,14 +756,21 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
     }
 
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(e->db->conn, "INSERT INTO items (barcode, name, created_in_work_session_id) VALUES (?, ?, ?)", -1, &stmt, NULL);
+    sqlite3_prepare_v2(e->db->conn,
+                        "INSERT INTO items (barcode, name, category_id, created_in_work_session_id) VALUES (?, ?, ?, ?)",
+                        -1, &stmt, NULL);
     if (barcode && barcode[0] != '\0') {
         sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
     } else {
         sqlite3_bind_null(stmt, 1);
     }
     sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 3, e->work_session_id);
+    if (category_id != 0) {
+        sqlite3_bind_int64(stmt, 3, category_id);
+    } else {
+        sqlite3_bind_null(stmt, 3);
+    }
+    sqlite3_bind_int64(stmt, 4, e->work_session_id);
     int rc = sqlite3_step(stmt);
     int64_t id = sqlite3_last_insert_rowid(e->db->conn);
     sqlite3_finalize(stmt);
@@ -758,6 +783,71 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
     }
     broadcast_buffer_changed(e);
     return id;
+}
+
+int64_t grammar_engine_ensure_category_path(grammar_engine_t *e, const char **path, int path_len) {
+    pthread_mutex_lock(&e->lock);
+    if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
+        pthread_mutex_unlock(&e->lock);
+        return -1;
+    }
+    if (path_len <= 0) {
+        pthread_mutex_unlock(&e->lock);
+        return -2;
+    }
+    for (int i = 0; i < path_len; i++) {
+        if (!path[i] || path[i][0] == '\0') {
+            pthread_mutex_unlock(&e->lock);
+            return -2;
+        }
+    }
+
+    int64_t parent_id = 0; /* 0 stands in for NULL/top-level here */
+    int64_t leaf_id = 0;
+
+    for (int i = 0; i < path_len; i++) {
+        sqlite3_stmt *sel;
+        if (parent_id == 0) {
+            sqlite3_prepare_v2(e->db->conn, "SELECT id FROM categories WHERE parent_id IS NULL AND name = ?", -1, &sel, NULL);
+            sqlite3_bind_text(sel, 1, path[i], -1, SQLITE_TRANSIENT);
+        } else {
+            sqlite3_prepare_v2(e->db->conn, "SELECT id FROM categories WHERE parent_id = ? AND name = ?", -1, &sel, NULL);
+            sqlite3_bind_int64(sel, 1, parent_id);
+            sqlite3_bind_text(sel, 2, path[i], -1, SQLITE_TRANSIENT);
+        }
+
+        int64_t found_id = 0;
+        if (sqlite3_step(sel) == SQLITE_ROW) {
+            found_id = sqlite3_column_int64(sel, 0);
+        }
+        sqlite3_finalize(sel);
+
+        if (found_id != 0) {
+            leaf_id = found_id;
+        } else {
+            sqlite3_stmt *ins;
+            sqlite3_prepare_v2(e->db->conn,
+                                "INSERT INTO categories (parent_id, name, created_in_work_session_id) VALUES (?, ?, ?)",
+                                -1, &ins, NULL);
+            if (parent_id != 0) {
+                sqlite3_bind_int64(ins, 1, parent_id);
+            } else {
+                sqlite3_bind_null(ins, 1);
+            }
+            sqlite3_bind_text(ins, 2, path[i], -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(ins, 3, e->work_session_id);
+            sqlite3_step(ins);
+            leaf_id = sqlite3_last_insert_rowid(e->db->conn);
+            sqlite3_finalize(ins);
+        }
+
+        parent_id = leaf_id;
+    }
+
+    e->last_activity_at = time(NULL);
+    pthread_mutex_unlock(&e->lock);
+    broadcast_buffer_changed(e);
+    return leaf_id;
 }
 
 int64_t grammar_engine_create_bin(grammar_engine_t *e, const char *label, const char *kind,
