@@ -345,7 +345,7 @@ static char *list_categories_json(sqlite3 *conn) {
 
 static char *list_tags_json(sqlite3 *conn) {
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(conn, "SELECT id, name FROM tags ORDER BY name", -1, &stmt, NULL);
+    sqlite3_prepare_v2(conn, "SELECT id, name, scope_category_id FROM tags ORDER BY name", -1, &stmt, NULL);
 
     size_t cap = 256, len = 0;
     char *buf = malloc(cap);
@@ -354,10 +354,16 @@ static char *list_tags_json(sqlite3 *conn) {
     int first = 1;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         char *name = json_escape((const char *) sqlite3_column_text(stmt, 1));
+        char scope[32];
+        if (sqlite3_column_type(stmt, 2) == SQLITE_NULL) {
+            snprintf(scope, sizeof(scope), "null");
+        } else {
+            snprintf(scope, sizeof(scope), "%lld", (long long) sqlite3_column_int64(stmt, 2));
+        }
 
         char entry[512];
-        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"name\":\"%s\"}",
-                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), name);
+        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"name\":\"%s\",\"scope_category_id\":%s}",
+                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), name, scope);
         free(name);
 
         buf = json_append(buf, &len, &cap, entry);
@@ -543,6 +549,8 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
                 result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
             } else if (id == -2) {
                 result = send_json(connection, 409, "{\"error\":\"duplicate barcode, invalid category_id, or an empty tag name\"}");
+            } else if (id == -3) {
+                result = send_json(connection, 409, "{\"error\":\"a named tag is scoped to a category this item isn't in\"}");
             } else {
                 char resp[64];
                 snprintf(resp, sizeof(resp), "{\"id\":%lld}", (long long) id);
@@ -555,10 +563,11 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
 
     } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/tags") == 0) {
         char *name = json_get_string(body, "name");
+        long scope_category_id = json_get_int(body, "scope_category_id", 0);
         if (!name) {
             result = send_json(connection, 400, "{\"error\":\"name is required\"}");
         } else {
-            int64_t id = grammar_engine_ensure_tag(cfg->engine, name);
+            int64_t id = grammar_engine_ensure_tag(cfg->engine, name, scope_category_id);
             if (id == -1) {
                 result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
             } else if (id == -2) {

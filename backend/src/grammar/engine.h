@@ -58,22 +58,37 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *engine, int64_t o
  * The new row is tagged with the work session that created it (as is an
  * item auto-created for an unrecognized barcode during a scan) -- rolling
  * that session back deletes it again, same as any other in-session change. */
-/* tag_names: independent properties to attach (e.g. "Потайной") -- found or
- * created by name inline, same as a pack's inline child-item creation.
- * Unlike category_id (a strict "is-a" hierarchy), an item can have any
- * number of these and they carry no nesting relationship to each other. */
+/* tag_names: independent properties to attach (e.g. "Потайной") -- found by
+ * name if an existing tag already has it, otherwise created inline as an
+ * unscoped (scope_category_id NULL) tag, same as a pack's inline
+ * child-item creation. Unlike category_id (a strict "is-a" hierarchy), an
+ * item can have any number of these and they carry no nesting relationship
+ * to each other -- what they do carry is an optional scope (see
+ * grammar_engine_ensure_tag below), checked here: if an existing tag named
+ * in tag_names is scoped, category_id must be that scope or a descendant
+ * of it, or the whole call is rejected (-3) before anything is written --
+ * deliberately not "create the item, then fail linking a tag" halfway.
+ *
+ * To set up a properly scoped tag ahead of time (so it doesn't get
+ * created unscoped the first time someone types its name here), create it
+ * explicitly via grammar_engine_ensure_tag first -- typically from an
+ * admin panel action, not from this inline path. */
 int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode,
                                     int64_t category_id, const char **tag_names, int tag_count);
 int64_t grammar_engine_create_bin(grammar_engine_t *engine, const char *label, const char *kind,
                                    const char *barcode_suffix, int64_t mono_item_id);
 
-/* Finds or creates a single tag by name. Same session-gating as everything
- * else; returns -1 if no session is open, -2 if name is empty. */
-int64_t grammar_engine_ensure_tag(grammar_engine_t *engine, const char *name);
+/* Finds or creates a single tag by name -- the standalone admin-panel path,
+ * not tied to creating an item. scope_category_id (0 = none) restricts the
+ * tag to that category or its descendants; only used if the tag doesn't
+ * already exist -- reusing an existing tag never changes its scope here.
+ * Same session-gating as everything else; returns -1 if no session is
+ * open, -2 if name is empty. */
+int64_t grammar_engine_ensure_tag(grammar_engine_t *engine, const char *name, int64_t scope_category_id);
 
-/* Category path ("Крепёж" -> "Винт" -> "М2" -> "Потайной"): finds-or-creates
- * each segment under the previous one (existing prefix segments are reused,
- * not duplicated) and returns the id of the last one -- the id an item's
+/* Category path ("Крепёж" -> "Винт" -> "М2"): finds-or-creates each segment
+ * under the previous one (existing prefix segments are reused, not
+ * duplicated) and returns the id of the last one -- the id an item's
  * category_id points to. Same session-gating and rollback behavior as
  * create_item/create_bin. Returns -1 if no session is open, -2 if path_len
  * is 0 or any segment is empty. */

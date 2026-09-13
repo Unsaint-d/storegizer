@@ -764,28 +764,66 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *e, int64_t operat
     return -1;
 }
 
-/* Assumes e->lock is already held by the caller. */
-static int64_t find_or_create_tag_locked(grammar_engine_t *e, const char *name) {
+/* True if category_id is scope_category_id itself or a descendant of it
+ * (walks up parent_id, bounded like the rollback category loop). A category
+ * of 0 (item has none) is never within any real scope. */
+static int category_is_within_scope_locked(grammar_engine_t *e, int64_t category_id, int64_t scope_category_id) {
+    if (scope_category_id == 0) {
+        return 1; /* unscoped tag -- always applicable */
+    }
+    int64_t current = category_id;
+    for (int guard = 0; guard < 64 && current != 0; guard++) {
+        if (current == scope_category_id) {
+            return 1;
+        }
+        sqlite3_stmt *stmt;
+        sqlite3_prepare_v2(e->db->conn, "SELECT parent_id FROM categories WHERE id = ?", -1, &stmt, NULL);
+        sqlite3_bind_int64(stmt, 1, current);
+        int64_t parent = 0;
+        if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
+            parent = sqlite3_column_int64(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
+        current = parent;
+    }
+    return 0;
+}
+
+/* Assumes e->lock is already held by the caller. *out_scope is the tag's
+ * scope_category_id if it already existed (0 if none, or if newly
+ * created -- a brand new tag made this way is always unscoped). */
+static int64_t find_or_create_tag_locked(grammar_engine_t *e, const char *name, int64_t scope_category_id, int64_t *out_scope) {
     sqlite3_stmt *sel;
-    sqlite3_prepare_v2(e->db->conn, "SELECT id FROM tags WHERE name = ?", -1, &sel, NULL);
+    sqlite3_prepare_v2(e->db->conn, "SELECT id, scope_category_id FROM tags WHERE name = ?", -1, &sel, NULL);
     sqlite3_bind_text(sel, 1, name, -1, SQLITE_TRANSIENT);
-    int64_t id = 0;
+    int64_t id = 0, existing_scope = 0;
     if (sqlite3_step(sel) == SQLITE_ROW) {
         id = sqlite3_column_int64(sel, 0);
+        if (sqlite3_column_type(sel, 1) != SQLITE_NULL) {
+            existing_scope = sqlite3_column_int64(sel, 1);
+        }
     }
     sqlite3_finalize(sel);
 
     if (id != 0) {
+        *out_scope = existing_scope;
         return id;
     }
 
     sqlite3_stmt *ins;
-    sqlite3_prepare_v2(e->db->conn, "INSERT INTO tags (name, created_in_work_session_id) VALUES (?, ?)", -1, &ins, NULL);
+    sqlite3_prepare_v2(e->db->conn, "INSERT INTO tags (name, scope_category_id, created_in_work_session_id) VALUES (?, ?, ?)",
+                        -1, &ins, NULL);
     sqlite3_bind_text(ins, 1, name, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(ins, 2, e->work_session_id);
+    if (scope_category_id != 0) {
+        sqlite3_bind_int64(ins, 2, scope_category_id);
+    } else {
+        sqlite3_bind_null(ins, 2);
+    }
+    sqlite3_bind_int64(ins, 3, e->work_session_id);
     sqlite3_step(ins);
     id = sqlite3_last_insert_rowid(e->db->conn);
     sqlite3_finalize(ins);
+    *out_scope = scope_category_id;
     return id;
 }
 
@@ -800,6 +838,27 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
         if (!tag_names[i] || tag_names[i][0] == '\0') {
             pthread_mutex_unlock(&e->lock);
             return -2;
+        }
+    }
+
+    /* Validate every already-existing named tag's scope BEFORE writing
+     * anything -- rejecting a scope mismatch after the item (and some
+     * tags) are already inserted would leave a half-applied create. Tags
+     * that don't exist yet are always fine here: find_or_create_tag_locked
+     * makes a brand new one unscoped, below. */
+    for (int i = 0; i < tag_count; i++) {
+        sqlite3_stmt *sel;
+        sqlite3_prepare_v2(e->db->conn, "SELECT scope_category_id FROM tags WHERE name = ?", -1, &sel, NULL);
+        sqlite3_bind_text(sel, 1, tag_names[i], -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(sel) == SQLITE_ROW && sqlite3_column_type(sel, 0) != SQLITE_NULL) {
+            int64_t scope = sqlite3_column_int64(sel, 0);
+            sqlite3_finalize(sel);
+            if (!category_is_within_scope_locked(e, category_id, scope)) {
+                pthread_mutex_unlock(&e->lock);
+                return -3;
+            }
+        } else {
+            sqlite3_finalize(sel);
         }
     }
 
@@ -829,7 +888,8 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
     }
 
     for (int i = 0; i < tag_count; i++) {
-        int64_t tag_id = find_or_create_tag_locked(e, tag_names[i]);
+        int64_t scope = 0;
+        int64_t tag_id = find_or_create_tag_locked(e, tag_names[i], 0, &scope);
         sqlite3_stmt *link;
         sqlite3_prepare_v2(e->db->conn, "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", -1, &link, NULL);
         sqlite3_bind_int64(link, 1, id);
@@ -844,7 +904,7 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
     return id;
 }
 
-int64_t grammar_engine_ensure_tag(grammar_engine_t *e, const char *name) {
+int64_t grammar_engine_ensure_tag(grammar_engine_t *e, const char *name, int64_t scope_category_id) {
     pthread_mutex_lock(&e->lock);
     if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
         pthread_mutex_unlock(&e->lock);
@@ -855,7 +915,8 @@ int64_t grammar_engine_ensure_tag(grammar_engine_t *e, const char *name) {
         return -2;
     }
 
-    int64_t id = find_or_create_tag_locked(e, name);
+    int64_t out_scope = 0;
+    int64_t id = find_or_create_tag_locked(e, name, scope_category_id, &out_scope);
 
     e->last_activity_at = time(NULL);
     pthread_mutex_unlock(&e->lock);

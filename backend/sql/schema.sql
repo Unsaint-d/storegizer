@@ -72,9 +72,14 @@ CREATE TABLE IF NOT EXISTS item_pack_contents (
 -- между самими тегами. Ровно для случаев вроде "потайная головка" -- она
 -- не подтип конкретного размера (М2/М3/...), а независимая характеристика,
 -- общая для любого размера (docs/scanning-grammar.md §2).
+--
+-- scope_category_id -- в каком поддереве категорий тег вообще имеет смысл
+-- (например "Потайной" под "Крепёж" -- не показывать/не разрешать его для
+-- предметов из "Лекарства"). NULL = без ограничения, применим где угодно.
 CREATE TABLE IF NOT EXISTS tags (
     id                        INTEGER PRIMARY KEY,
     name                      TEXT NOT NULL UNIQUE,
+    scope_category_id         INTEGER REFERENCES categories(id),
     created_in_work_session_id INTEGER REFERENCES work_sessions(id)
 );
 
