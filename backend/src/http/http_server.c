@@ -17,9 +17,19 @@ typedef struct {
     size_t body_len;
 } request_ctx_t;
 
+/* The web UI is served from a different origin (port) than this API, and
+ * per README.md other devices on the LAN reach it that way too -- so every
+ * response, including preflights, needs CORS headers. */
+static void add_cors_headers(struct MHD_Response *response) {
+    MHD_add_response_header(response, "Access-Control-Allow-Origin", "*");
+    MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    MHD_add_response_header(response, "Access-Control-Allow-Headers", "Content-Type");
+}
+
 static enum MHD_Result send_json(struct MHD_Connection *connection, unsigned int status, const char *json) {
     struct MHD_Response *response = MHD_create_response_from_buffer(strlen(json), (void *) json, MHD_RESPMEM_MUST_COPY);
     MHD_add_response_header(response, "Content-Type", "application/json");
+    add_cors_headers(response);
     enum MHD_Result ret = MHD_queue_response(connection, status, response);
     MHD_destroy_response(response);
     return ret;
@@ -152,7 +162,12 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
 
     enum MHD_Result result;
 
-    if (strcmp(method, "GET") == 0 && strcmp(url, "/api/health") == 0) {
+    if (strcmp(method, "OPTIONS") == 0) {
+        struct MHD_Response *response = MHD_create_response_from_buffer(0, "", MHD_RESPMEM_PERSISTENT);
+        add_cors_headers(response);
+        result = MHD_queue_response(connection, 204, response);
+        MHD_destroy_response(response);
+    } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/health") == 0) {
         result = send_json(connection, 200, "{\"status\":\"ok\"}");
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/items") == 0) {
         char *json = list_items_json(cfg->db->conn);
