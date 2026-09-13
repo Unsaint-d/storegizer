@@ -58,9 +58,18 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *engine, int64_t o
  * The new row is tagged with the work session that created it (as is an
  * item auto-created for an unrecognized barcode during a scan) -- rolling
  * that session back deletes it again, same as any other in-session change. */
-int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode, int64_t category_id);
+/* tag_names: independent properties to attach (e.g. "Потайной") -- found or
+ * created by name inline, same as a pack's inline child-item creation.
+ * Unlike category_id (a strict "is-a" hierarchy), an item can have any
+ * number of these and they carry no nesting relationship to each other. */
+int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode,
+                                    int64_t category_id, const char **tag_names, int tag_count);
 int64_t grammar_engine_create_bin(grammar_engine_t *engine, const char *label, const char *kind,
                                    const char *barcode_suffix, int64_t mono_item_id);
+
+/* Finds or creates a single tag by name. Same session-gating as everything
+ * else; returns -1 if no session is open, -2 if name is empty. */
+int64_t grammar_engine_ensure_tag(grammar_engine_t *engine, const char *name);
 
 /* Category path ("Крепёж" -> "Винт" -> "М2" -> "Потайной"): finds-or-creates
  * each segment under the previous one (existing prefix segments are reused,

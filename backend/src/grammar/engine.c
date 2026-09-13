@@ -607,19 +607,30 @@ int grammar_engine_rollback_session(grammar_engine_t *e) {
 
     /* Full undo, not just "don't apply": already-buffered operations from
      * closed bin-sessions earlier in this session are deleted too, along
-     * with any bin/item/category created from the panel or auto-created for
-     * an unrecognized item barcode while this session was open -- none of it
-     * would exist if not for this session. Order matters for foreign keys:
-     * buffered_operations (references bins/items) before bins (references
-     * items via mono_item_id) before items (references categories) before
-     * categories. Categories are self-referencing (parent_id), so a single
+     * with any bin/item/category/tag created from the panel or auto-created
+     * for an unrecognized item barcode while this session was open -- none
+     * of it would exist if not for this session. Order matters for foreign
+     * keys: buffered_operations (references bins/items) and item_tags
+     * (references items/tags) before bins (references items via
+     * mono_item_id) before items (references categories) before categories
+     * and tags. Categories are self-referencing (parent_id), so a single
      * DELETE can violate the FK if a parent created this session is visited
      * before its child -- delete leaf-first, repeatedly, until nothing this
-     * session created is left. */
+     * session created is left. (item_tags has no own provenance column --
+     * there's no way yet to attach a tag to an already-existing item outside
+     * of creating it, so "belongs to an item created this session" is
+     * exactly the rows this session could have produced.) */
     sqlite3_exec(e->db->conn, "BEGIN", NULL, NULL, NULL);
 
     sqlite3_stmt *stmt;
     sqlite3_prepare_v2(e->db->conn, "DELETE FROM buffered_operations WHERE work_session_id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, e->work_session_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    sqlite3_prepare_v2(e->db->conn,
+                        "DELETE FROM item_tags WHERE item_id IN (SELECT id FROM items WHERE created_in_work_session_id = ?)",
+                        -1, &stmt, NULL);
     sqlite3_bind_int64(stmt, 1, e->work_session_id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -630,6 +641,11 @@ int grammar_engine_rollback_session(grammar_engine_t *e) {
     sqlite3_finalize(stmt);
 
     sqlite3_prepare_v2(e->db->conn, "DELETE FROM items WHERE created_in_work_session_id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, e->work_session_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    sqlite3_prepare_v2(e->db->conn, "DELETE FROM tags WHERE created_in_work_session_id = ?", -1, &stmt, NULL);
     sqlite3_bind_int64(stmt, 1, e->work_session_id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -748,11 +764,43 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *e, int64_t operat
     return -1;
 }
 
-int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const char *barcode, int64_t category_id) {
+/* Assumes e->lock is already held by the caller. */
+static int64_t find_or_create_tag_locked(grammar_engine_t *e, const char *name) {
+    sqlite3_stmt *sel;
+    sqlite3_prepare_v2(e->db->conn, "SELECT id FROM tags WHERE name = ?", -1, &sel, NULL);
+    sqlite3_bind_text(sel, 1, name, -1, SQLITE_TRANSIENT);
+    int64_t id = 0;
+    if (sqlite3_step(sel) == SQLITE_ROW) {
+        id = sqlite3_column_int64(sel, 0);
+    }
+    sqlite3_finalize(sel);
+
+    if (id != 0) {
+        return id;
+    }
+
+    sqlite3_stmt *ins;
+    sqlite3_prepare_v2(e->db->conn, "INSERT INTO tags (name, created_in_work_session_id) VALUES (?, ?)", -1, &ins, NULL);
+    sqlite3_bind_text(ins, 1, name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(ins, 2, e->work_session_id);
+    sqlite3_step(ins);
+    id = sqlite3_last_insert_rowid(e->db->conn);
+    sqlite3_finalize(ins);
+    return id;
+}
+
+int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const char *barcode, int64_t category_id,
+                                    const char **tag_names, int tag_count) {
     pthread_mutex_lock(&e->lock);
     if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
         pthread_mutex_unlock(&e->lock);
         return -1;
+    }
+    for (int i = 0; i < tag_count; i++) {
+        if (!tag_names[i] || tag_names[i][0] == '\0') {
+            pthread_mutex_unlock(&e->lock);
+            return -2;
+        }
     }
 
     sqlite3_stmt *stmt;
@@ -775,12 +823,42 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
     int64_t id = sqlite3_last_insert_rowid(e->db->conn);
     sqlite3_finalize(stmt);
 
-    e->last_activity_at = time(NULL);
-    pthread_mutex_unlock(&e->lock);
-
     if (rc != SQLITE_DONE) {
+        pthread_mutex_unlock(&e->lock);
         return -2;
     }
+
+    for (int i = 0; i < tag_count; i++) {
+        int64_t tag_id = find_or_create_tag_locked(e, tag_names[i]);
+        sqlite3_stmt *link;
+        sqlite3_prepare_v2(e->db->conn, "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", -1, &link, NULL);
+        sqlite3_bind_int64(link, 1, id);
+        sqlite3_bind_int64(link, 2, tag_id);
+        sqlite3_step(link);
+        sqlite3_finalize(link);
+    }
+
+    e->last_activity_at = time(NULL);
+    pthread_mutex_unlock(&e->lock);
+    broadcast_buffer_changed(e);
+    return id;
+}
+
+int64_t grammar_engine_ensure_tag(grammar_engine_t *e, const char *name) {
+    pthread_mutex_lock(&e->lock);
+    if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
+        pthread_mutex_unlock(&e->lock);
+        return -1;
+    }
+    if (!name || name[0] == '\0') {
+        pthread_mutex_unlock(&e->lock);
+        return -2;
+    }
+
+    int64_t id = find_or_create_tag_locked(e, name);
+
+    e->last_activity_at = time(NULL);
+    pthread_mutex_unlock(&e->lock);
     broadcast_buffer_changed(e);
     return id;
 }

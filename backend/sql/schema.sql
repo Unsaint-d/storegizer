@@ -66,6 +66,24 @@ CREATE TABLE IF NOT EXISTS item_pack_contents (
     PRIMARY KEY (pack_item_id, child_item_id)
 );
 
+-- Независимые, переиспользуемые свойства предмета (например "Потайной",
+-- "Оцинкованный") -- в отличие от categories, они не вложены друг в друга:
+-- тег либо применён к предмету, либо нет, без отношения "это подтип того"
+-- между самими тегами. Ровно для случаев вроде "потайная головка" -- она
+-- не подтип конкретного размера (М2/М3/...), а независимая характеристика,
+-- общая для любого размера (docs/scanning-grammar.md §2).
+CREATE TABLE IF NOT EXISTS tags (
+    id                        INTEGER PRIMARY KEY,
+    name                      TEXT NOT NULL UNIQUE,
+    created_in_work_session_id INTEGER REFERENCES work_sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS item_tags (
+    item_id  INTEGER NOT NULL REFERENCES items(id),
+    tag_id   INTEGER NOT NULL REFERENCES tags(id),
+    PRIMARY KEY (item_id, tag_id)
+);
+
 CREATE TABLE IF NOT EXISTS work_sessions (
     id          INTEGER PRIMARY KEY,
     status      TEXT NOT NULL CHECK (status IN ('open', 'frozen', 'committed', 'rolled_back')),

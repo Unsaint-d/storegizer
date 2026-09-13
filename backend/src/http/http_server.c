@@ -210,6 +210,30 @@ static int try_parse_id_suffix(const char *url, const char *prefix, int64_t *out
     return 1;
 }
 
+/* [1,2,3] -- frontend already has GET /api/tags for names, same pattern as
+ * category_id (backend hands over ids, frontend joins). */
+static char *item_tag_ids_json(sqlite3 *conn, int64_t item_id) {
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(conn, "SELECT tag_id FROM item_tags WHERE item_id = ? ORDER BY tag_id", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, item_id);
+
+    size_t cap = 64, len = 0;
+    char *buf = malloc(cap);
+    buf = json_append(buf, &len, &cap, "[");
+
+    int first = 1;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        char entry[24];
+        snprintf(entry, sizeof(entry), "%s%lld", first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0));
+        buf = json_append(buf, &len, &cap, entry);
+        first = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    buf = json_append(buf, &len, &cap, "]");
+    return buf;
+}
+
 static char *list_items_json(sqlite3 *conn) {
     sqlite3_stmt *stmt;
     sqlite3_prepare_v2(conn, "SELECT id, barcode, name, category_id FROM items ORDER BY id", -1, &stmt, NULL);
@@ -220,6 +244,7 @@ static char *list_items_json(sqlite3 *conn) {
 
     int first = 1;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int64_t item_id = sqlite3_column_int64(stmt, 0);
         char *barcode = json_escape((const char *) sqlite3_column_text(stmt, 1));
         char *name = json_escape((const char *) sqlite3_column_text(stmt, 2));
         char category_id[32];
@@ -228,12 +253,14 @@ static char *list_items_json(sqlite3 *conn) {
         } else {
             snprintf(category_id, sizeof(category_id), "%lld", (long long) sqlite3_column_int64(stmt, 3));
         }
+        char *tag_ids = item_tag_ids_json(conn, item_id);
 
-        char entry[1024];
-        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"barcode\":\"%s\",\"name\":\"%s\",\"category_id\":%s}",
-                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), barcode, name, category_id);
+        char entry[1152];
+        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"barcode\":\"%s\",\"name\":\"%s\",\"category_id\":%s,\"tag_ids\":%s}",
+                  first ? "" : ",", (long long) item_id, barcode, name, category_id, tag_ids);
         free(barcode);
         free(name);
+        free(tag_ids);
 
         buf = json_append(buf, &len, &cap, entry);
         first = 0;
@@ -316,6 +343,32 @@ static char *list_categories_json(sqlite3 *conn) {
     return buf;
 }
 
+static char *list_tags_json(sqlite3 *conn) {
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(conn, "SELECT id, name FROM tags ORDER BY name", -1, &stmt, NULL);
+
+    size_t cap = 256, len = 0;
+    char *buf = malloc(cap);
+    buf = json_append(buf, &len, &cap, "[");
+
+    int first = 1;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        char *name = json_escape((const char *) sqlite3_column_text(stmt, 1));
+
+        char entry[512];
+        snprintf(entry, sizeof(entry), "%s{\"id\":%lld,\"name\":\"%s\"}",
+                  first ? "" : ",", (long long) sqlite3_column_int64(stmt, 0), name);
+        free(name);
+
+        buf = json_append(buf, &len, &cap, entry);
+        first = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    buf = json_append(buf, &len, &cap, "]");
+    return buf;
+}
+
 static void trim_trailing_whitespace(char *s) {
     size_t n = strlen(s);
     while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t')) {
@@ -371,6 +424,11 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
 
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/categories") == 0) {
         char *json = list_categories_json(cfg->db->conn);
+        result = send_json(connection, 200, json);
+        free(json);
+
+    } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/tags") == 0) {
+        char *json = list_tags_json(cfg->db->conn);
         result = send_json(connection, 200, json);
         free(json);
 
@@ -474,14 +532,17 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         char *name = json_get_string(body, "name");
         char *barcode = json_get_string(body, "barcode");
         long category_id = json_get_int(body, "category_id", 0);
+        int tag_count = 0;
+        char **tag_names = json_get_string_array(body, "tag_names", &tag_count);
         if (!name) {
             result = send_json(connection, 400, "{\"error\":\"name is required\"}");
         } else {
-            int64_t id = grammar_engine_create_item(cfg->engine, name, barcode, category_id);
+            int64_t id = grammar_engine_create_item(cfg->engine, name, barcode, category_id,
+                                                      (const char **) tag_names, tag_count);
             if (id == -1) {
                 result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
             } else if (id == -2) {
-                result = send_json(connection, 409, "{\"error\":\"duplicate barcode, or category_id doesn't exist\"}");
+                result = send_json(connection, 409, "{\"error\":\"duplicate barcode, invalid category_id, or an empty tag name\"}");
             } else {
                 char resp[64];
                 snprintf(resp, sizeof(resp), "{\"id\":%lld}", (long long) id);
@@ -490,6 +551,25 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         }
         free(name);
         free(barcode);
+        free_string_array(tag_names, tag_count);
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/tags") == 0) {
+        char *name = json_get_string(body, "name");
+        if (!name) {
+            result = send_json(connection, 400, "{\"error\":\"name is required\"}");
+        } else {
+            int64_t id = grammar_engine_ensure_tag(cfg->engine, name);
+            if (id == -1) {
+                result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+            } else if (id == -2) {
+                result = send_json(connection, 400, "{\"error\":\"name must not be empty\"}");
+            } else {
+                char resp[64];
+                snprintf(resp, sizeof(resp), "{\"id\":%lld}", (long long) id);
+                result = send_json(connection, 200, resp);
+            }
+        }
+        free(name);
 
     } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/categories") == 0) {
         int path_len = 0;
