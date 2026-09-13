@@ -1,0 +1,39 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - backend-data:/data
+    environment:
+      - STOREGIZER_DB_PATH=/data/storegizer.db
+      - STOREGIZER_SCHEMA_PATH=/app/sql/schema.sql
+      - HTTP_PORT=8080
+      - WS_PORT=8081
+    # На реальном Linux-хосте со сканером сюда добавляется устройство,
+    # например: devices: ["/dev/input/event5:/dev/input/event5"], и
+    # переменная SCANNER_DEVICE=/dev/input/event5. На Docker Desktop
+    # (Windows) проброс /dev/input недоступен -- без SCANNER_DEVICE backend
+    # сам включает debug-эндпоинт POST /api/debug/scan для эмуляции сканов.
+
+  print-service:
+    build: ./print-service
+    ports:
+      - "5000:5000"
+    # На реальном хосте с NIIMBOT B1, подключённым по USB-serial:
+    # devices: ["/dev/ttyUSB0:/dev/ttyUSB0"]
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080
+      - VITE_WS_URL=ws://localhost:8081
+
+volumes:
+  backend-data:

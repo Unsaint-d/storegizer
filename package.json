@@ -1,0 +1,9 @@
+{
+  "name": "storegizer",
+  "private": true,
+  "description": "Convenience scripts for running the frontend dev server from the project root; backend and print-service are C/Node processes run separately or via docker-compose.",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev -- --host 0.0.0.0",
+    "frontend:build": "npm --prefix frontend run build"
+  }
+}

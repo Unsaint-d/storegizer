@@ -1,0 +1,18 @@
+# backend
+backend/build/
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# node (frontend, print-service)
+node_modules/
+dist/
+.env
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
