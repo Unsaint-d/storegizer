@@ -381,27 +381,20 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
                          : send_json(connection, 404, "{\"error\":\"operation not found in the open session\"}");
         }
 
-    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/admin/items") == 0) {
-        /* Minimal, unauthenticated -- placeholder until real admin CRUD
-         * (icon upload, editing) lands. Enough to seed test data. */
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/items") == 0) {
+        /* Creating an item is a session action, same single gate as
+         * everything else here -- not a separately-reachable admin
+         * surface (docs/scanning-grammar.md §3). Icon upload/editing is
+         * separate, later work. */
         char *name = json_get_string(body, "name");
         char *barcode = json_get_string(body, "barcode");
         if (!name) {
             result = send_json(connection, 400, "{\"error\":\"name is required\"}");
         } else {
-            sqlite3_stmt *stmt;
-            sqlite3_prepare_v2(cfg->db->conn, "INSERT INTO items (barcode, name) VALUES (?, ?)", -1, &stmt, NULL);
-            if (barcode && barcode[0] != '\0') {
-                sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
-            } else {
-                sqlite3_bind_null(stmt, 1);
-            }
-            sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
-            int rc = sqlite3_step(stmt);
-            int64_t id = sqlite3_last_insert_rowid(cfg->db->conn);
-            sqlite3_finalize(stmt);
-
-            if (rc != SQLITE_DONE) {
+            int64_t id = grammar_engine_create_item(cfg->engine, name, barcode);
+            if (id == -1) {
+                result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+            } else if (id == -2) {
                 result = send_json(connection, 409, "{\"error\":\"barcode already in use\"}");
             } else {
                 char resp[64];
@@ -412,7 +405,7 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         free(name);
         free(barcode);
 
-    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/admin/bins") == 0) {
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/bins") == 0) {
         char *label = json_get_string(body, "label");
         char *kind = json_get_string(body, "kind");
         char *suffix = json_get_string(body, "barcode_suffix");
@@ -423,30 +416,14 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         } else if (strcmp(kind, "mono") == 0 && mono_item_id <= 0) {
             result = send_json(connection, 400, "{\"error\":\"mono_item_id is required for kind=mono\"}");
         } else {
-            char barcode[128];
-            snprintf(barcode, sizeof(barcode), "STG-BIN-%s", suffix);
-
-            sqlite3_stmt *stmt;
-            sqlite3_prepare_v2(cfg->db->conn,
-                                "INSERT INTO bins (barcode, label, kind, mono_item_id) VALUES (?, ?, ?, ?)",
-                                -1, &stmt, NULL);
-            sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 2, label, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 3, kind, -1, SQLITE_TRANSIENT);
-            if (strcmp(kind, "mono") == 0) {
-                sqlite3_bind_int64(stmt, 4, mono_item_id);
-            } else {
-                sqlite3_bind_null(stmt, 4);
-            }
-            int rc = sqlite3_step(stmt);
-            int64_t id = sqlite3_last_insert_rowid(cfg->db->conn);
-            sqlite3_finalize(stmt);
-
-            if (rc != SQLITE_DONE) {
+            int64_t id = grammar_engine_create_bin(cfg->engine, label, kind, suffix, mono_item_id);
+            if (id == -1) {
+                result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+            } else if (id == -2) {
                 result = send_json(connection, 409, "{\"error\":\"barcode already in use\"}");
             } else {
                 char resp[192];
-                snprintf(resp, sizeof(resp), "{\"id\":%lld,\"barcode\":\"%s\"}", (long long) id, barcode);
+                snprintf(resp, sizeof(resp), "{\"id\":%lld,\"barcode\":\"STG-BIN-%s\"}", (long long) id, suffix);
                 result = send_json(connection, 200, resp);
             }
         }

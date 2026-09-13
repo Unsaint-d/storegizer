@@ -705,6 +705,72 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *e, int64_t operat
     return -1;
 }
 
+int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const char *barcode) {
+    pthread_mutex_lock(&e->lock);
+    if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
+        pthread_mutex_unlock(&e->lock);
+        return -1;
+    }
+
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(e->db->conn, "INSERT INTO items (barcode, name) VALUES (?, ?)", -1, &stmt, NULL);
+    if (barcode && barcode[0] != '\0') {
+        sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
+    } else {
+        sqlite3_bind_null(stmt, 1);
+    }
+    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    int64_t id = sqlite3_last_insert_rowid(e->db->conn);
+    sqlite3_finalize(stmt);
+
+    e->last_activity_at = time(NULL);
+    pthread_mutex_unlock(&e->lock);
+
+    if (rc != SQLITE_DONE) {
+        return -2;
+    }
+    broadcast_buffer_changed(e);
+    return id;
+}
+
+int64_t grammar_engine_create_bin(grammar_engine_t *e, const char *label, const char *kind,
+                                   const char *barcode_suffix, int64_t mono_item_id) {
+    pthread_mutex_lock(&e->lock);
+    if (e->work_session_id == 0 || strcmp(e->work_session_status, "open") != 0) {
+        pthread_mutex_unlock(&e->lock);
+        return -1;
+    }
+
+    char barcode[128];
+    snprintf(barcode, sizeof(barcode), "STG-BIN-%s", barcode_suffix);
+    int is_mono = strcmp(kind, "mono") == 0;
+
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(e->db->conn, "INSERT INTO bins (barcode, label, kind, mono_item_id) VALUES (?, ?, ?, ?)",
+                        -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, label, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, kind, -1, SQLITE_TRANSIENT);
+    if (is_mono) {
+        sqlite3_bind_int64(stmt, 4, mono_item_id);
+    } else {
+        sqlite3_bind_null(stmt, 4);
+    }
+    int rc = sqlite3_step(stmt);
+    int64_t id = sqlite3_last_insert_rowid(e->db->conn);
+    sqlite3_finalize(stmt);
+
+    e->last_activity_at = time(NULL);
+    pthread_mutex_unlock(&e->lock);
+
+    if (rc != SQLITE_DONE) {
+        return -2;
+    }
+    broadcast_buffer_changed(e);
+    return id;
+}
+
 /* ---- status JSON ---- */
 
 static char *json_append(char *buf, size_t *len, size_t *cap, const char *piece) {

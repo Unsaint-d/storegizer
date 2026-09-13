@@ -42,6 +42,19 @@ int grammar_engine_manual_operation(grammar_engine_t *engine, const char *op_typ
 int grammar_engine_delete_operation(grammar_engine_t *engine, int64_t operation_id);
 int grammar_engine_update_operation_quantity(grammar_engine_t *engine, int64_t operation_id, int quantity);
 
+/* Creating a bin or item is only ever done from the panel inside an open
+ * work session -- same single gate as everything else here, not a
+ * separately-reachable admin surface (docs/scanning-grammar.md §3). Both
+ * return the new row id (> 0) on success, -1 if no work session is open,
+ * -2 on a DB-level conflict (e.g. duplicate barcode).
+ *
+ * barcode may be NULL/empty for grammar_engine_create_item (filled in
+ * later, or left for a scan to claim); bins always get one, derived from
+ * barcode_suffix. mono_item_id is ignored unless kind is "mono". */
+int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode);
+int64_t grammar_engine_create_bin(grammar_engine_t *engine, const char *label, const char *kind,
+                                   const char *barcode_suffix, int64_t mono_item_id);
+
 /* JSON status: work session state, current focus, open (not yet closed)
  * bin-sessions, and the buffered operations recorded so far. Caller frees. */
 char *grammar_engine_status_json(grammar_engine_t *engine);
