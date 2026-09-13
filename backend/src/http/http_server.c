@@ -17,12 +17,9 @@ typedef struct {
     size_t body_len;
 } request_ctx_t;
 
-/* The web UI is served from a different origin (port) than this API, and
- * per README.md other devices on the LAN reach it that way too -- so every
- * response, including preflights, needs CORS headers. */
 static void add_cors_headers(struct MHD_Response *response) {
     MHD_add_response_header(response, "Access-Control-Allow-Origin", "*");
-    MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     MHD_add_response_header(response, "Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -54,7 +51,7 @@ static char *json_escape(const char *s) {
     return out;
 }
 
-static char *append(char *buf, size_t *len, size_t *cap, const char *piece) {
+static char *json_append(char *buf, size_t *len, size_t *cap, const char *piece) {
     size_t piece_len = strlen(piece);
     if (*len + piece_len + 1 > *cap) {
         *cap = (*len + piece_len + 1) * 2;
@@ -65,13 +62,87 @@ static char *append(char *buf, size_t *len, size_t *cap, const char *piece) {
     return buf;
 }
 
+/* Hand-rolled, deliberately minimal: finds "key": "string" or "key": 123 in
+ * a flat, known-shape JSON object. Not a general parser -- our request
+ * bodies never nest or need real unescaping beyond skipping \" . */
+static char *json_get_string(const char *body, const char *key) {
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *p = strstr(body, pattern);
+    if (!p) {
+        return NULL;
+    }
+    p = strchr(p + strlen(pattern), ':');
+    if (!p) {
+        return NULL;
+    }
+    p++;
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    if (*p != '"') {
+        return NULL;
+    }
+    p++;
+    const char *end = p;
+    while (*end && *end != '"') {
+        if (*end == '\\' && *(end + 1)) {
+            end++;
+        }
+        end++;
+    }
+    size_t len = (size_t) (end - p);
+    char *out = malloc(len + 1);
+    memcpy(out, p, len);
+    out[len] = '\0';
+    return out;
+}
+
+static long json_get_int(const char *body, const char *key, long fallback) {
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *p = strstr(body, pattern);
+    if (!p) {
+        return fallback;
+    }
+    p = strchr(p + strlen(pattern), ':');
+    if (!p) {
+        return fallback;
+    }
+    p++;
+    char *endptr;
+    long value = strtol(p, &endptr, 10);
+    if (endptr == p) {
+        return fallback;
+    }
+    return value;
+}
+
+static int try_parse_id_suffix(const char *url, const char *prefix, int64_t *out_id) {
+    size_t prefix_len = strlen(prefix);
+    if (strncmp(url, prefix, prefix_len) != 0) {
+        return 0;
+    }
+    const char *rest = url + prefix_len;
+    if (*rest == '\0') {
+        return 0;
+    }
+    char *endptr;
+    long long id = strtoll(rest, &endptr, 10);
+    if (*endptr != '\0' || id <= 0) {
+        return 0;
+    }
+    *out_id = id;
+    return 1;
+}
+
 static char *list_items_json(sqlite3 *conn) {
     sqlite3_stmt *stmt;
     sqlite3_prepare_v2(conn, "SELECT id, barcode, name FROM items ORDER BY id", -1, &stmt, NULL);
 
     size_t cap = 256, len = 0;
     char *buf = malloc(cap);
-    buf = append(buf, &len, &cap, "[");
+    buf = json_append(buf, &len, &cap, "[");
 
     int first = 1;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -84,12 +155,12 @@ static char *list_items_json(sqlite3 *conn) {
         free(barcode);
         free(name);
 
-        buf = append(buf, &len, &cap, entry);
+        buf = json_append(buf, &len, &cap, entry);
         first = 0;
     }
 
     sqlite3_finalize(stmt);
-    buf = append(buf, &len, &cap, "]");
+    buf = json_append(buf, &len, &cap, "]");
     return buf;
 }
 
@@ -99,7 +170,7 @@ static char *list_bins_json(sqlite3 *conn) {
 
     size_t cap = 256, len = 0;
     char *buf = malloc(cap);
-    buf = append(buf, &len, &cap, "[");
+    buf = json_append(buf, &len, &cap, "[");
 
     int first = 1;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -121,12 +192,39 @@ static char *list_bins_json(sqlite3 *conn) {
         free(label);
         free(kind);
 
-        buf = append(buf, &len, &cap, entry);
+        buf = json_append(buf, &len, &cap, entry);
         first = 0;
     }
 
     sqlite3_finalize(stmt);
-    buf = append(buf, &len, &cap, "]");
+    buf = json_append(buf, &len, &cap, "]");
+    return buf;
+}
+
+static char *list_settings_json(sqlite3 *conn) {
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(conn, "SELECT key, value FROM settings ORDER BY key", -1, &stmt, NULL);
+
+    size_t cap = 256, len = 0;
+    char *buf = malloc(cap);
+    buf = json_append(buf, &len, &cap, "[");
+
+    int first = 1;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        char *key = json_escape((const char *) sqlite3_column_text(stmt, 0));
+        char *value = json_escape((const char *) sqlite3_column_text(stmt, 1));
+
+        char entry[512];
+        snprintf(entry, sizeof(entry), "%s{\"key\":\"%s\",\"value\":\"%s\"}", first ? "" : ",", key, value);
+        free(key);
+        free(value);
+
+        buf = json_append(buf, &len, &cap, entry);
+        first = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    buf = json_append(buf, &len, &cap, "]");
     return buf;
 }
 
@@ -160,25 +258,56 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
         return MHD_YES;
     }
 
+    const char *body = ctx->body ? ctx->body : "";
     enum MHD_Result result;
+    int64_t path_id;
 
     if (strcmp(method, "OPTIONS") == 0) {
         struct MHD_Response *response = MHD_create_response_from_buffer(0, "", MHD_RESPMEM_PERSISTENT);
         add_cors_headers(response);
         result = MHD_queue_response(connection, 204, response);
         MHD_destroy_response(response);
+
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/health") == 0) {
         result = send_json(connection, 200, "{\"status\":\"ok\"}");
+
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/items") == 0) {
         char *json = list_items_json(cfg->db->conn);
         result = send_json(connection, 200, json);
         free(json);
+
     } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/bins") == 0) {
         char *json = list_bins_json(cfg->db->conn);
         result = send_json(connection, 200, json);
         free(json);
+
+    } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/settings") == 0) {
+        char *json = list_settings_json(cfg->db->conn);
+        result = send_json(connection, 200, json);
+        free(json);
+
+    } else if (strcmp(method, "PUT") == 0 && strncmp(url, "/api/settings/", strlen("/api/settings/")) == 0 &&
+               strlen(url) > strlen("/api/settings/")) {
+        const char *key = url + strlen("/api/settings/");
+        char *value = json_get_string(body, "value");
+        if (!value || key[0] == '\0') {
+            free(value);
+            result = send_json(connection, 400, "{\"error\":\"value is required\"}");
+        } else {
+            sqlite3_stmt *stmt;
+            sqlite3_prepare_v2(cfg->db->conn, "INSERT INTO settings (key, value) VALUES (?, ?) "
+                                               "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                                -1, &stmt, NULL);
+            sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, value, -1, SQLITE_TRANSIENT);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+            free(value);
+            result = send_json(connection, 200, "{\"status\":\"ok\"}");
+        }
+
     } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/debug/scan") == 0) {
-        if (!cfg->debug_scan_cb) {
+        if (!cfg->debug_scan_enabled) {
             result = send_json(connection, 403, "{\"error\":\"debug scan disabled (a real scanner is attached)\"}");
         } else {
             char *barcode = ctx->body ? ctx->body : "";
@@ -186,10 +315,145 @@ static enum MHD_Result handle_request(void *cls, struct MHD_Connection *connecti
             if (barcode[0] == '\0') {
                 result = send_json(connection, 400, "{\"error\":\"empty barcode\"}");
             } else {
-                cfg->debug_scan_cb(barcode, cfg->debug_scan_user_data);
+                grammar_engine_on_scan(cfg->engine, barcode);
                 result = send_json(connection, 200, "{\"status\":\"ok\"}");
             }
         }
+
+    } else if (strcmp(method, "GET") == 0 && strcmp(url, "/api/session") == 0) {
+        char *json = grammar_engine_status_json(cfg->engine);
+        result = send_json(connection, 200, json);
+        free(json);
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/open") == 0) {
+        result = grammar_engine_open_session(cfg->engine) == 0
+                     ? send_json(connection, 200, "{\"status\":\"ok\"}")
+                     : send_json(connection, 409, "{\"error\":\"a work session is already open or frozen\"}");
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/restore") == 0) {
+        result = grammar_engine_restore_session(cfg->engine) == 0
+                     ? send_json(connection, 200, "{\"status\":\"ok\"}")
+                     : send_json(connection, 409, "{\"error\":\"no frozen session to restore\"}");
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/commit") == 0) {
+        result = grammar_engine_commit_session(cfg->engine) == 0
+                     ? send_json(connection, 200, "{\"status\":\"ok\"}")
+                     : send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/rollback") == 0) {
+        result = grammar_engine_rollback_session(cfg->engine) == 0
+                     ? send_json(connection, 200, "{\"status\":\"ok\"}")
+                     : send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/session/operations") == 0) {
+        char *op_type = json_get_string(body, "op_type");
+        long item_id = json_get_int(body, "item_id", 0);
+        long bin_id = json_get_int(body, "bin_id", 0);
+        long quantity = json_get_int(body, "quantity", 0);
+
+        if (!op_type || (strcmp(op_type, "add") != 0 && strcmp(op_type, "remove") != 0) ||
+            item_id <= 0 || bin_id <= 0 || quantity <= 0) {
+            result = send_json(connection, 400, "{\"error\":\"op_type (add|remove), item_id, bin_id, quantity are required\"}");
+        } else {
+            int written = grammar_engine_manual_operation(cfg->engine, op_type, item_id, bin_id, (int) quantity);
+            if (written < 0) {
+                result = send_json(connection, 409, "{\"error\":\"no work session is open\"}");
+            } else if (written == 0) {
+                result = send_json(connection, 409, "{\"error\":\"not enough stock for this removal\"}");
+            } else {
+                result = send_json(connection, 200, "{\"status\":\"ok\"}");
+            }
+        }
+        free(op_type);
+
+    } else if (strcmp(method, "DELETE") == 0 && try_parse_id_suffix(url, "/api/session/operations/", &path_id)) {
+        result = grammar_engine_delete_operation(cfg->engine, path_id) == 0
+                     ? send_json(connection, 200, "{\"status\":\"ok\"}")
+                     : send_json(connection, 404, "{\"error\":\"operation not found in the open session\"}");
+
+    } else if (strcmp(method, "PUT") == 0 && try_parse_id_suffix(url, "/api/session/operations/", &path_id)) {
+        long quantity = json_get_int(body, "quantity", 0);
+        if (quantity <= 0) {
+            result = send_json(connection, 400, "{\"error\":\"quantity must be positive\"}");
+        } else {
+            result = grammar_engine_update_operation_quantity(cfg->engine, path_id, (int) quantity) == 0
+                         ? send_json(connection, 200, "{\"status\":\"ok\"}")
+                         : send_json(connection, 404, "{\"error\":\"operation not found in the open session\"}");
+        }
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/admin/items") == 0) {
+        /* Minimal, unauthenticated -- placeholder until real admin CRUD
+         * (icon upload, editing) lands. Enough to seed test data. */
+        char *name = json_get_string(body, "name");
+        char *barcode = json_get_string(body, "barcode");
+        if (!name) {
+            result = send_json(connection, 400, "{\"error\":\"name is required\"}");
+        } else {
+            sqlite3_stmt *stmt;
+            sqlite3_prepare_v2(cfg->db->conn, "INSERT INTO items (barcode, name) VALUES (?, ?)", -1, &stmt, NULL);
+            if (barcode && barcode[0] != '\0') {
+                sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
+            } else {
+                sqlite3_bind_null(stmt, 1);
+            }
+            sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+            int rc = sqlite3_step(stmt);
+            int64_t id = sqlite3_last_insert_rowid(cfg->db->conn);
+            sqlite3_finalize(stmt);
+
+            if (rc != SQLITE_DONE) {
+                result = send_json(connection, 409, "{\"error\":\"barcode already in use\"}");
+            } else {
+                char resp[64];
+                snprintf(resp, sizeof(resp), "{\"id\":%lld}", (long long) id);
+                result = send_json(connection, 200, resp);
+            }
+        }
+        free(name);
+        free(barcode);
+
+    } else if (strcmp(method, "POST") == 0 && strcmp(url, "/api/admin/bins") == 0) {
+        char *label = json_get_string(body, "label");
+        char *kind = json_get_string(body, "kind");
+        char *suffix = json_get_string(body, "barcode_suffix");
+        long mono_item_id = json_get_int(body, "mono_item_id", 0);
+
+        if (!label || !kind || !suffix || (strcmp(kind, "mono") != 0 && strcmp(kind, "poly") != 0)) {
+            result = send_json(connection, 400, "{\"error\":\"label, kind (mono|poly), barcode_suffix are required\"}");
+        } else if (strcmp(kind, "mono") == 0 && mono_item_id <= 0) {
+            result = send_json(connection, 400, "{\"error\":\"mono_item_id is required for kind=mono\"}");
+        } else {
+            char barcode[128];
+            snprintf(barcode, sizeof(barcode), "STG-BIN-%s", suffix);
+
+            sqlite3_stmt *stmt;
+            sqlite3_prepare_v2(cfg->db->conn,
+                                "INSERT INTO bins (barcode, label, kind, mono_item_id) VALUES (?, ?, ?, ?)",
+                                -1, &stmt, NULL);
+            sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, label, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, kind, -1, SQLITE_TRANSIENT);
+            if (strcmp(kind, "mono") == 0) {
+                sqlite3_bind_int64(stmt, 4, mono_item_id);
+            } else {
+                sqlite3_bind_null(stmt, 4);
+            }
+            int rc = sqlite3_step(stmt);
+            int64_t id = sqlite3_last_insert_rowid(cfg->db->conn);
+            sqlite3_finalize(stmt);
+
+            if (rc != SQLITE_DONE) {
+                result = send_json(connection, 409, "{\"error\":\"barcode already in use\"}");
+            } else {
+                char resp[192];
+                snprintf(resp, sizeof(resp), "{\"id\":%lld,\"barcode\":\"%s\"}", (long long) id, barcode);
+                result = send_json(connection, 200, resp);
+            }
+        }
+        free(label);
+        free(kind);
+        free(suffix);
+
     } else {
         result = send_json(connection, 404, "{\"error\":\"not found\"}");
     }

@@ -1,4 +1,5 @@
 #include "db/db.h"
+#include "grammar/engine.h"
 #include "http/http_server.h"
 #include "scanner/scanner.h"
 #include "ws/ws_server.h"
@@ -6,7 +7,6 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 static volatile int g_running = 1;
@@ -21,33 +21,11 @@ static const char *getenv_default(const char *name, const char *fallback) {
     return v ? v : fallback;
 }
 
-typedef struct {
-    ws_server_t *ws;
-} scan_pipeline_ctx_t;
-
-/* Entry point for every scanned barcode, whether it came from the real
- * evdev scanner or the /api/debug/scan endpoint. The session/buffer and
- * mono-bin/grammar rules described in README.md are not designed yet, so
- * for now this just logs and pushes the raw scan to WS clients. */
-static void handle_scan(const char *barcode, void *user_data) {
-    scan_pipeline_ctx_t *ctx = (scan_pipeline_ctx_t *) user_data;
-    fprintf(stderr, "scan: %s\n", barcode);
-
-    char *escaped = malloc(strlen(barcode) * 2 + 1);
-    size_t j = 0;
-    for (size_t i = 0; barcode[i]; i++) {
-        if (barcode[i] == '"' || barcode[i] == '\\') {
-            escaped[j++] = '\\';
-        }
-        escaped[j++] = barcode[i];
-    }
-    escaped[j] = '\0';
-
-    char msg[512];
-    snprintf(msg, sizeof(msg), "{\"type\":\"scan\",\"barcode\":\"%s\"}", escaped);
-    free(escaped);
-
-    ws_server_broadcast(ctx->ws, msg);
+/* Adapts scanner_scan_cb's (barcode, user_data) shape to the engine's own
+ * (engine, barcode) -- same entry point the /api/debug/scan endpoint uses,
+ * so real and simulated scans go through identical grammar handling. */
+static void on_real_scan(const char *barcode, void *user_data) {
+    grammar_engine_on_scan((grammar_engine_t *) user_data, barcode);
 }
 
 int main(void) {
@@ -73,11 +51,11 @@ int main(void) {
         return 1;
     }
 
-    scan_pipeline_ctx_t scan_ctx = {.ws = ws};
+    grammar_engine_t *engine = grammar_engine_create(&db, ws);
 
     scanner_t *scanner = NULL;
     if (scanner_device) {
-        scanner = scanner_evdev_start(scanner_device, handle_scan, &scan_ctx);
+        scanner = scanner_evdev_start(scanner_device, on_real_scan, engine);
         if (!scanner) {
             fprintf(stderr, "main: could not grab scanner device %s, falling back to /api/debug/scan\n", scanner_device);
         }
@@ -93,8 +71,8 @@ int main(void) {
     http_server_config_t http_config = {
         .port = http_port,
         .db = &db,
-        .debug_scan_cb = debug_scan_enabled ? handle_scan : NULL,
-        .debug_scan_user_data = &scan_ctx,
+        .engine = engine,
+        .debug_scan_enabled = debug_scan_enabled,
     };
 
     http_server_t *http = http_server_start(&http_config);
@@ -103,6 +81,7 @@ int main(void) {
         if (scanner) {
             scanner_evdev_stop(scanner);
         }
+        grammar_engine_destroy(engine);
         ws_server_stop(ws);
         db_close(&db);
         return 1;
@@ -120,6 +99,7 @@ int main(void) {
     if (scanner) {
         scanner_evdev_stop(scanner);
     }
+    grammar_engine_destroy(engine);
     ws_server_stop(ws);
     db_close(&db);
     return 0;

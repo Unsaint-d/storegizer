@@ -16,6 +16,8 @@ add_executable(storegizer_backend
     src/ws/ws_server.c
     src/db/db.c
     src/scanner/scanner_evdev.c
+    src/grammar/classify.c
+    src/grammar/engine.c
 )
 
 target_include_directories(storegizer_backend PRIVATE
