@@ -50,7 +50,11 @@ int grammar_engine_update_operation_quantity(grammar_engine_t *engine, int64_t o
  *
  * barcode may be NULL/empty for grammar_engine_create_item (filled in
  * later, or left for a scan to claim); bins always get one, derived from
- * barcode_suffix. mono_item_id is ignored unless kind is "mono". */
+ * barcode_suffix. mono_item_id is ignored unless kind is "mono".
+ *
+ * The new row is tagged with the work session that created it (as is an
+ * item auto-created for an unrecognized barcode during a scan) -- rolling
+ * that session back deletes it again, same as any other in-session change. */
 int64_t grammar_engine_create_item(grammar_engine_t *engine, const char *name, const char *barcode);
 int64_t grammar_engine_create_bin(grammar_engine_t *engine, const char *label, const char *kind,
                                    const char *barcode_suffix, int64_t mono_item_id);

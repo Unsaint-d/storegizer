@@ -12,21 +12,23 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS items (
-    id               INTEGER PRIMARY KEY,
-    barcode          TEXT UNIQUE, -- NULL пока не отсканирован/не задан вручную
-    name             TEXT NOT NULL DEFAULT '',
-    icon_emoji       TEXT,
-    icon_image_path  TEXT
+    id                        INTEGER PRIMARY KEY,
+    barcode                   TEXT UNIQUE, -- NULL пока не отсканирован/не задан вручную
+    name                      TEXT NOT NULL DEFAULT '',
+    icon_emoji                TEXT,
+    icon_image_path           TEXT,
+    created_in_work_session_id INTEGER REFERENCES work_sessions(id) -- см. buffered_operations: создание откатывается вместе с сессией
 );
 
 CREATE TABLE IF NOT EXISTS bins (
-    id               INTEGER PRIMARY KEY,
-    barcode          TEXT UNIQUE NOT NULL, -- STG-BIN-<id>, назначается при создании
-    label            TEXT NOT NULL,
-    kind             TEXT NOT NULL CHECK (kind IN ('mono', 'poly')),
-    mono_item_id     INTEGER REFERENCES items(id), -- только для kind='mono'
-    icon_emoji       TEXT,
-    icon_image_path  TEXT
+    id                        INTEGER PRIMARY KEY,
+    barcode                   TEXT UNIQUE NOT NULL, -- STG-BIN-<id>, назначается при создании
+    label                     TEXT NOT NULL,
+    kind                      TEXT NOT NULL CHECK (kind IN ('mono', 'poly')),
+    mono_item_id              INTEGER REFERENCES items(id), -- только для kind='mono'
+    icon_emoji                TEXT,
+    icon_image_path           TEXT,
+    created_in_work_session_id INTEGER REFERENCES work_sessions(id)
 );
 
 CREATE TABLE IF NOT EXISTS bin_stock (

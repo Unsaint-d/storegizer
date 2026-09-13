@@ -104,11 +104,15 @@ static int64_t find_item_by_barcode(db_t *db, const char *barcode) {
     return id;
 }
 
-static int64_t create_item_with_barcode(db_t *db, const char *barcode) {
+/* Tagged with the work session that caused it to exist, same as bin/item
+ * creation from the panel -- if that session gets rolled back, this item
+ * (which only exists because of it) is discarded too, not left behind. */
+static int64_t create_item_with_barcode(db_t *db, const char *barcode, int64_t work_session_id) {
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db->conn, "INSERT INTO items (barcode, name) VALUES (?, ?)", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db->conn, "INSERT INTO items (barcode, name, created_in_work_session_id) VALUES (?, ?, ?)", -1, &stmt, NULL);
     sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, "", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt, 3, work_session_id);
     sqlite3_step(stmt);
     int64_t id = sqlite3_last_insert_rowid(db->conn);
     sqlite3_finalize(stmt);
@@ -441,7 +445,7 @@ void grammar_engine_on_scan(grammar_engine_t *e, const char *raw_code) {
     } else {
         int64_t item_id = find_item_by_barcode(e->db, raw_code);
         if (item_id == 0) {
-            item_id = create_item_with_barcode(e->db, raw_code);
+            item_id = create_item_with_barcode(e->db, raw_code, e->work_session_id);
         }
         handle_item_scan(e, item_id);
     }
@@ -606,12 +610,38 @@ int grammar_engine_rollback_session(grammar_engine_t *e) {
     free_pending_list(e->unassigned_items);
     e->unassigned_items = NULL;
 
+    /* Full undo, not just "don't apply": already-buffered operations from
+     * closed bin-sessions earlier in this session are deleted too, along
+     * with any bin/item created from the panel or auto-created for an
+     * unrecognized item barcode while this session was open -- none of it
+     * would exist if not for this session. Order matters for foreign keys:
+     * buffered_operations (references bins/items) before bins (references
+     * items via mono_item_id) before items. */
+    sqlite3_exec(e->db->conn, "BEGIN", NULL, NULL, NULL);
+
     sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(e->db->conn, "DELETE FROM buffered_operations WHERE work_session_id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, e->work_session_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    sqlite3_prepare_v2(e->db->conn, "DELETE FROM bins WHERE created_in_work_session_id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, e->work_session_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    sqlite3_prepare_v2(e->db->conn, "DELETE FROM items WHERE created_in_work_session_id = ?", -1, &stmt, NULL);
+    sqlite3_bind_int64(stmt, 1, e->work_session_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
     sqlite3_prepare_v2(e->db->conn, "UPDATE work_sessions SET status = 'rolled_back', closed_at = ? WHERE id = ?", -1, &stmt, NULL);
     sqlite3_bind_int64(stmt, 1, (sqlite3_int64) time(NULL));
     sqlite3_bind_int64(stmt, 2, e->work_session_id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+
+    sqlite3_exec(e->db->conn, "COMMIT", NULL, NULL, NULL);
 
     e->work_session_id = 0;
     e->work_session_status[0] = '\0';
@@ -713,13 +743,14 @@ int64_t grammar_engine_create_item(grammar_engine_t *e, const char *name, const 
     }
 
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(e->db->conn, "INSERT INTO items (barcode, name) VALUES (?, ?)", -1, &stmt, NULL);
+    sqlite3_prepare_v2(e->db->conn, "INSERT INTO items (barcode, name, created_in_work_session_id) VALUES (?, ?, ?)", -1, &stmt, NULL);
     if (barcode && barcode[0] != '\0') {
         sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
     } else {
         sqlite3_bind_null(stmt, 1);
     }
     sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, e->work_session_id);
     int rc = sqlite3_step(stmt);
     int64_t id = sqlite3_last_insert_rowid(e->db->conn);
     sqlite3_finalize(stmt);
@@ -747,7 +778,8 @@ int64_t grammar_engine_create_bin(grammar_engine_t *e, const char *label, const 
     int is_mono = strcmp(kind, "mono") == 0;
 
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(e->db->conn, "INSERT INTO bins (barcode, label, kind, mono_item_id) VALUES (?, ?, ?, ?)",
+    sqlite3_prepare_v2(e->db->conn,
+                        "INSERT INTO bins (barcode, label, kind, mono_item_id, created_in_work_session_id) VALUES (?, ?, ?, ?, ?)",
                         -1, &stmt, NULL);
     sqlite3_bind_text(stmt, 1, barcode, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, label, -1, SQLITE_TRANSIENT);
@@ -757,6 +789,7 @@ int64_t grammar_engine_create_bin(grammar_engine_t *e, const char *label, const 
     } else {
         sqlite3_bind_null(stmt, 4);
     }
+    sqlite3_bind_int64(stmt, 5, e->work_session_id);
     int rc = sqlite3_step(stmt);
     int64_t id = sqlite3_last_insert_rowid(e->db->conn);
     sqlite3_finalize(stmt);
