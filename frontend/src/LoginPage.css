@@ -20,6 +20,18 @@
   padding: 2.5rem 2.75rem;
   background: var(--surface);
   border-right: 1px solid var(--border);
+  animation: card-in 0.5s ease both;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 760px) {
@@ -59,32 +71,66 @@
   margin-top: 0.5rem;
 }
 
+.mode-toggle-track {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.mode-toggle-thumb {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--accent);
+  transition: transform 0.3s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.mode-toggle-thumb.is-eye {
+  transform: translateX(48px);
+}
+
 .mode-toggle button {
+  position: relative;
+  z-index: 1;
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: none;
+  background: transparent;
   color: var(--muted);
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: color 0.2s, transform 0.15s;
 }
 
 .mode-toggle button:hover {
-  border-color: var(--accent);
+  color: var(--ink);
 }
 
 .mode-toggle button.active {
-  background: var(--accent);
-  border-color: var(--accent);
   color: var(--accent-ink);
+}
+
+.mode-toggle button:active {
+  transform: scale(0.9);
 }
 
 .mode-toggle button svg {
   width: 20px;
   height: 20px;
+  transition: transform 0.25s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.mode-toggle button.active svg {
+  transform: scale(1.1);
 }
 
 .mode-label {
@@ -101,6 +147,26 @@ form {
   flex-direction: column;
   gap: 0.75rem;
   margin-top: 0.25rem;
+}
+
+.field-group {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.35s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.25s ease;
+}
+
+.field-group.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.field-group-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 input {
@@ -133,11 +199,15 @@ input:focus-visible {
   color: var(--accent-ink);
   cursor: pointer;
   margin-top: 0.25rem;
-  transition: filter 0.15s;
+  transition: filter 0.15s, transform 0.1s;
 }
 
 .submit:hover {
   filter: brightness(1.05);
+}
+
+.submit:active {
+  transform: scale(0.98);
 }
 
 .submit:disabled {
@@ -158,6 +228,16 @@ input:focus-visible {
   display: grid;
   place-items: center;
   background: var(--ground);
+  animation: panel-in 0.7s ease 0.1s both;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 760px) {
@@ -189,8 +269,13 @@ input:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .floater {
-    animation: none;
+  .login-page,
+  .login-page *,
+  .login-page *::before,
+  .login-page *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -235,6 +320,16 @@ input:focus-visible {
   place-items: center;
   padding: 1rem;
   z-index: 10;
+  animation: overlay-in 0.2s ease both;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal {
@@ -248,6 +343,18 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .modal h2 {
@@ -272,4 +379,13 @@ input:focus-visible {
   background: var(--accent);
   color: var(--accent-ink);
   cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+}
+
+.modal button:hover {
+  filter: brightness(1.05);
+}
+
+.modal button:active {
+  transform: scale(0.96);
 }

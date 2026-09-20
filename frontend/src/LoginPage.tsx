@@ -93,43 +93,47 @@ export default function LoginPage() {
         <p className="subtitle">Авторизуйтесь, чтобы продолжить</p>
 
         <div className="mode-toggle" role="radiogroup" aria-label="Способ входа">
-          <button
-            type="button"
-            className={mode === 'key' ? 'active' : ''}
-            aria-pressed={mode === 'key'}
-            onClick={() => {
-              setMode('key')
-              setError(null)
-              setReaderEntered(false)
-            }}
-          >
-            <KeyIcon />
-          </button>
-          <button
-            type="button"
-            className={mode === 'eye' ? 'active' : ''}
-            aria-pressed={mode === 'eye'}
-            onClick={() => {
-              setMode('eye')
-              setError(null)
-              setReaderEntered(false)
-            }}
-          >
-            <EyeIcon />
-          </button>
+          <div className="mode-toggle-track">
+            <span className={`mode-toggle-thumb ${mode === 'eye' ? 'is-eye' : ''}`} aria-hidden="true" />
+            <button
+              type="button"
+              className={mode === 'key' ? 'active' : ''}
+              aria-pressed={mode === 'key'}
+              onClick={() => {
+                setMode('key')
+                setError(null)
+                setReaderEntered(false)
+              }}
+            >
+              <KeyIcon />
+            </button>
+            <button
+              type="button"
+              className={mode === 'eye' ? 'active' : ''}
+              aria-pressed={mode === 'eye'}
+              onClick={() => {
+                setMode('eye')
+                setError(null)
+                setReaderEntered(false)
+              }}
+            >
+              <EyeIcon />
+            </button>
+          </div>
           <span className="mode-label">
             {mode === 'key' ? 'вход в учётную запись' : 'вход анонимно (только просмотр)'}
           </span>
         </div>
 
         <form onSubmit={handleSubmit}>
-          {mode === 'key' && (
-            <>
+          <div className={`field-group ${mode === 'key' ? 'is-open' : ''}`}>
+            <div className="field-group-inner">
               <input
                 value={login}
                 onChange={(e) => setLogin(e.target.value)}
                 placeholder="Логин"
                 autoComplete="username"
+                tabIndex={mode === 'key' ? undefined : -1}
               />
               <input
                 value={password}
@@ -137,9 +141,10 @@ export default function LoginPage() {
                 type="password"
                 placeholder="Пароль"
                 autoComplete="current-password"
+                tabIndex={mode === 'key' ? undefined : -1}
               />
-            </>
-          )}
+            </div>
+          </div>
 
           <button type="submit" className="submit" disabled={submitting}>
             {submitting ? 'Входим…' : 'Войти'}
