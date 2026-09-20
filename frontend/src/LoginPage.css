@@ -7,12 +7,11 @@
 @media (max-width: 760px) {
   /* brand-panel becomes a fixed full-screen background (see its own
    * mobile rule below), so login-page just needs to stack its one
-   * remaining in-flow child -- pushed to the bottom, leaving the top of
-   * the screen as open background for the logo to sit in. */
+   * remaining in-flow child -- centered vertically over the background. */
   .login-page {
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
+    justify-content: center;
     min-height: 100svh;
     padding: 1.25rem;
   }
