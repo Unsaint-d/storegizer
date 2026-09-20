@@ -30,7 +30,19 @@
 }
 
 .login-card h1 {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.headline-main {
   font-size: clamp(28px, 4vw, 36px);
+}
+
+.headline-sub {
+  font-size: clamp(15px, 2vw, 18px);
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .subtitle {

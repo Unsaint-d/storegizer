@@ -86,7 +86,10 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>Добро пожаловать в систему домашнего складского учёта!</h1>
+        <h1>
+          <span className="headline-main">Добро пожаловать</span>
+          <span className="headline-sub">в систему домашнего складского учёта!</span>
+        </h1>
         <p className="subtitle">Авторизуйтесь в систему, чтобы продолжить</p>
 
         <div className="mode-toggle" role="radiogroup" aria-label="Способ входа">
