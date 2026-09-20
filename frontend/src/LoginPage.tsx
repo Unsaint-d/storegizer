@@ -24,12 +24,18 @@ function EyeIcon() {
 }
 
 const FLOATERS = [
-  { size: 120, top: '10%', left: '15%', delay: '0s', duration: '14s', color: 'var(--accent)' },
-  { size: 80, top: '55%', left: '8%', delay: '2s', duration: '11s', color: 'var(--add)' },
-  { size: 150, top: '30%', left: '55%', delay: '1s', duration: '16s', color: 'var(--remove)' },
-  { size: 70, top: '70%', left: '60%', delay: '3.5s', duration: '10s', color: 'var(--accent)' },
-  { size: 100, top: '15%', left: '75%', delay: '0.5s', duration: '13s', color: 'var(--add)' },
-  { size: 60, top: '80%', left: '30%', delay: '2.5s', duration: '9s', color: 'var(--remove)' },
+  { size: 120, top: '10%', left: '15%', delay: '0s', duration: '6s', color: 'var(--accent)' },
+  { size: 80, top: '55%', left: '8%', delay: '1s', duration: '5s', color: 'var(--add)' },
+  { size: 150, top: '30%', left: '55%', delay: '0.5s', duration: '7s', color: 'var(--remove)' },
+  { size: 70, top: '70%', left: '60%', delay: '1.8s', duration: '4.5s', color: 'var(--accent)' },
+  { size: 100, top: '15%', left: '75%', delay: '0.2s', duration: '6.5s', color: 'var(--add)' },
+  { size: 60, top: '80%', left: '30%', delay: '1.2s', duration: '4s', color: 'var(--remove)' },
+  { size: 90, top: '4%', left: '45%', delay: '0.8s', duration: '5.5s', color: 'var(--accent)' },
+  { size: 65, top: '40%', left: '88%', delay: '2.2s', duration: '4.5s', color: 'var(--add)' },
+  { size: 110, top: '62%', left: '20%', delay: '0.3s', duration: '7s', color: 'var(--remove)' },
+  { size: 75, top: '90%', left: '70%', delay: '1.5s', duration: '5s', color: 'var(--accent)' },
+  { size: 55, top: '22%', left: '4%', delay: '2.6s', duration: '4s', color: 'var(--add)' },
+  { size: 95, top: '48%', left: '38%', delay: '0.6s', duration: '6s', color: 'var(--remove)' },
 ]
 
 export default function LoginPage() {

@@ -5,9 +5,16 @@
 }
 
 @media (max-width: 760px) {
+  /* brand-panel becomes a fixed full-screen background (see its own
+   * mobile rule below), so login-page just needs to stack its one
+   * remaining in-flow child -- pushed to the bottom, leaving the top of
+   * the screen as open background for the logo to sit in. */
   .login-page {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 100svh;
+    padding: 1.25rem;
   }
 }
 
@@ -37,7 +44,12 @@
 
 @media (max-width: 760px) {
   .login-card {
+    position: relative;
+    z-index: 1;
     border-right: none;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
     padding: 2rem 1.5rem;
   }
 }
@@ -243,14 +255,18 @@ input:focus-visible {
 
 @media (max-width: 760px) {
   /* On a phone-sized screen there's no room for a side-by-side brand
-   * column, so the same blurred-floaters treatment becomes a header
-   * strip above the card instead of disappearing entirely -- the logo
-   * moves into it, centered. */
+   * column, so the floaters become a fixed full-screen background behind
+   * everything instead of disappearing -- they drift across the whole
+   * page, not just a strip. The logo sits in the open area above the
+   * card (which floats near the bottom, see .login-page/.login-card). */
   .brand-panel {
-    display: grid;
-    order: -1;
-    min-height: 200px;
-    padding: 1.5rem;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    padding-top: 4rem;
   }
 
   .brand-word {
@@ -265,8 +281,8 @@ input:focus-visible {
 .floaters {
   position: absolute;
   inset: 0;
-  filter: blur(28px);
-  opacity: 0.55;
+  filter: blur(14px);
+  opacity: 0.7;
 }
 
 .floater {
