@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import LoginPage from './LoginPage'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
@@ -7,7 +8,7 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8081'
 type Item = { id: number; barcode: string; name: string }
 type ScanEvent = { barcode: string; receivedAt: string }
 
-function App() {
+function DebugDashboard() {
   const [health, setHealth] = useState<'checking' | 'ok' | 'unreachable'>('checking')
   const [items, setItems] = useState<Item[]>([])
   const [scans, setScans] = useState<ScanEvent[]>([])
@@ -82,6 +83,22 @@ function App() {
         )}
       </section>
     </main>
+  )
+}
+
+// Trial of the login page mockup -- no routing yet (only one page worth
+// navigating to so far), so a corner link swaps to the old backend-debug
+// view instead of losing it.
+function App() {
+  const [showDebug, setShowDebug] = useState(false)
+
+  return (
+    <>
+      {showDebug ? <DebugDashboard /> : <LoginPage />}
+      <button type="button" className="debug-toggle" onClick={() => setShowDebug((v) => !v)}>
+        {showDebug ? '← Вход' : 'Debug'}
+      </button>
+    </>
   )
 }
 

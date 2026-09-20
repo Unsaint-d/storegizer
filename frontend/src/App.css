@@ -55,3 +55,18 @@ code {
   padding: 0.1rem 0.35rem;
   border-radius: 0.3rem;
 }
+
+.debug-toggle {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--muted, #6b7280);
+  cursor: pointer;
+  z-index: 20;
+}
