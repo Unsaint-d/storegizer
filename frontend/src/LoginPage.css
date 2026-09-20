@@ -36,7 +36,6 @@
 .subtitle {
   color: var(--muted);
   font-size: 0.95rem;
-  margin-top: -0.5rem;
 }
 
 /* ---------- mode toggle ---------- */
