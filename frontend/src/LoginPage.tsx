@@ -90,7 +90,7 @@ export default function LoginPage() {
           <span className="headline-main">Добро пожаловать</span>
           <span className="headline-sub">в систему домашнего складского учёта!</span>
         </h1>
-        <p className="subtitle">Авторизуйтесь в систему, чтобы продолжить</p>
+        <p className="subtitle">Авторизуйтесь, чтобы продолжить</p>
 
         <div className="mode-toggle" role="radiogroup" aria-label="Способ входа">
           <button
