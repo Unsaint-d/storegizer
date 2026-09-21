@@ -132,7 +132,7 @@ function RadioGroup<T extends string>({ name, options, value, onChange }: RadioG
 
 export default function CatalogPage() {
   const [query, setQuery] = useState('')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sort, setSort] = useState<SortKey>('name')
   const [category, setCategory] = useState<Category | 'Все'>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
@@ -157,118 +157,116 @@ export default function CatalogPage() {
     <div className="catalog-page">
       <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
-      <div className="catalog-shell">
-        <header className="catalog-topbar">
-          <button
-            type="button"
-            className="icon-btn menu-btn"
-            aria-label="Показать/скрыть панель"
-            aria-pressed={sidebarOpen}
-            onClick={() => setSidebarOpen((v) => !v)}
-          >
-            <MenuIcon />
-          </button>
+      <header className="catalog-topbar">
+        <button
+          type="button"
+          className="icon-btn menu-btn"
+          aria-label="Показать/скрыть панель"
+          aria-pressed={sidebarOpen}
+          onClick={() => setSidebarOpen((v) => !v)}
+        >
+          <MenuIcon />
+        </button>
 
-          <div className="catalog-brand">
-            <span className="catalog-brand-word">Storegizer</span>
-            <span className="catalog-brand-tab">каталог</span>
+        <div className="catalog-brand">
+          <span className="catalog-brand-word">Storegizer</span>
+          <span className="catalog-brand-tab">каталог</span>
+        </div>
+
+        <label className="catalog-search">
+          <span className="catalog-search-icon">
+            <SearchIcon />
+          </span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Найти..."
+            type="search"
+          />
+        </label>
+      </header>
+
+      <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+        <aside className="catalog-sidebar">
+          <div className="sidebar-section">
+            <h2>Сортировка</h2>
+            <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
           </div>
 
-          <label className="catalog-search">
-            <span className="catalog-search-icon">
-              <SearchIcon />
-            </span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти..."
-              type="search"
+          <div className="sidebar-section">
+            <h2>Категории</h2>
+            <RadioGroup
+              name="category"
+              options={[{ key: 'Все' as const, label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
+              value={category}
+              onChange={setCategory}
             />
-          </label>
-        </header>
+          </div>
 
-        <div className={`catalog-body ${sidebarOpen ? 'sidebar-open' : ''}`}>
-          <aside className="catalog-sidebar">
-            <div className="sidebar-section">
-              <h2>Сортировка</h2>
-              <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
+          <div className="sidebar-section">
+            <h2>Фильтры</h2>
+            <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
+          </div>
+
+          <div className="sidebar-view-switch" role="radiogroup" aria-label="Вид отображения">
+            <button
+              type="button"
+              className={view === 'list' ? 'active' : ''}
+              aria-pressed={view === 'list'}
+              aria-label="Список"
+              onClick={() => setView('list')}
+            >
+              <ListViewIcon />
+            </button>
+            <button
+              type="button"
+              className={view === 'grid' ? 'active' : ''}
+              aria-pressed={view === 'grid'}
+              aria-label="Сетка"
+              onClick={() => setView('grid')}
+            >
+              <GridViewIcon />
+            </button>
+            <button
+              type="button"
+              className={view === 'compact' ? 'active' : ''}
+              aria-pressed={view === 'compact'}
+              aria-label="Компактный список"
+              onClick={() => setView('compact')}
+            >
+              <CompactViewIcon />
+            </button>
+          </div>
+        </aside>
+
+        <main className="catalog-main">
+          <div className="catalog-main-toolbar">
+            <span className="catalog-count">{filtered.length} предметов</span>
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
+          ) : (
+            <div className={`catalog-items view-${view}`}>
+              {filtered.map((item) => {
+                const Icon = ITEM_ICONS[item.icon]
+                return (
+                  <article key={item.id} className="item-card">
+                    <div className="item-icon">
+                      <Icon />
+                    </div>
+                    <div className="item-body">
+                      <h3>{item.name}</h3>
+                      <p className="item-location">{item.location}</p>
+                      <code className="item-barcode">{item.barcode}</code>
+                    </div>
+                    <span className="item-qty">×{item.qty}</span>
+                  </article>
+                )
+              })}
             </div>
-
-            <div className="sidebar-section">
-              <h2>Категории</h2>
-              <RadioGroup
-                name="category"
-                options={[{ key: 'Все' as const, label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
-                value={category}
-                onChange={setCategory}
-              />
-            </div>
-
-            <div className="sidebar-section">
-              <h2>Фильтры</h2>
-              <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
-            </div>
-
-            <div className="sidebar-view-switch" role="radiogroup" aria-label="Вид отображения">
-              <button
-                type="button"
-                className={view === 'list' ? 'active' : ''}
-                aria-pressed={view === 'list'}
-                aria-label="Список"
-                onClick={() => setView('list')}
-              >
-                <ListViewIcon />
-              </button>
-              <button
-                type="button"
-                className={view === 'grid' ? 'active' : ''}
-                aria-pressed={view === 'grid'}
-                aria-label="Сетка"
-                onClick={() => setView('grid')}
-              >
-                <GridViewIcon />
-              </button>
-              <button
-                type="button"
-                className={view === 'compact' ? 'active' : ''}
-                aria-pressed={view === 'compact'}
-                aria-label="Компактный список"
-                onClick={() => setView('compact')}
-              >
-                <CompactViewIcon />
-              </button>
-            </div>
-          </aside>
-
-          <main className="catalog-main">
-            <div className="catalog-main-toolbar">
-              <span className="catalog-count">{filtered.length} предметов</span>
-            </div>
-
-            {filtered.length === 0 ? (
-              <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
-            ) : (
-              <div className={`catalog-items view-${view}`}>
-                {filtered.map((item) => {
-                  const Icon = ITEM_ICONS[item.icon]
-                  return (
-                    <article key={item.id} className="item-card">
-                      <div className="item-icon">
-                        <Icon />
-                      </div>
-                      <div className="item-body">
-                        <h3>{item.name}</h3>
-                        <p className="item-location">{item.location}</p>
-                        <code className="item-barcode">{item.barcode}</code>
-                      </div>
-                      <span className="item-qty">×{item.qty}</span>
-                    </article>
-                  )
-                })}
-              </div>
-            )}
-          </main>
-        </div>
+          )}
+        </main>
       </div>
     </div>
   )
