@@ -29,7 +29,9 @@ function EyeIcon() {
   )
 }
 
-function BoxIcon() {
+// Exported so CatalogPage can reuse the same storage-item glyphs for its
+// item cards instead of drawing its own set.
+export function BoxIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="3" y="3" width="18" height="18" rx="4" />
@@ -37,7 +39,7 @@ function BoxIcon() {
   )
 }
 
-function TagIcon() {
+export function TagIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <polygon points="3,4 14,4 21,12 14,20 3,20" />
@@ -45,7 +47,7 @@ function TagIcon() {
   )
 }
 
-function JarIcon() {
+export function JarIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="6" y="7" width="12" height="15" rx="3" />
@@ -54,7 +56,7 @@ function JarIcon() {
   )
 }
 
-function BarcodeIcon() {
+export function BarcodeIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="2" y="4" width="2" height="16" />
@@ -91,7 +93,11 @@ const FLOATERS = [
   { size: 95, top: '113%', left: '38%', delay: '-13s', duration: '18s', color: 'var(--remove)', icon: 3 },
 ]
 
-export default function LoginPage() {
+type LoginPageProps = {
+  onAuthenticated?: () => void
+}
+
+export default function LoginPage({ onAuthenticated }: LoginPageProps) {
   const [mode, setMode] = useState<Mode>('key')
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
@@ -128,7 +134,7 @@ export default function LoginPage() {
         if (!res.ok) {
           throw new Error()
         }
-        // TODO: once the backend auth endpoint exists, redirect into the admin panel here.
+        onAuthenticated?.()
       } catch {
         setError('Не удалось войти. Проверьте логин и пароль.')
       } finally {
@@ -142,10 +148,12 @@ export default function LoginPage() {
           throw new Error()
         }
         setReaderEntered(true)
+        onAuthenticated?.()
       } catch {
         // No reader-auth endpoint exists yet either -- fall through to a
         // local demo state so the anonymous path still has something to show.
         setReaderEntered(true)
+        onAuthenticated?.()
       } finally {
         setSubmitting(false)
       }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import LoginPage from './LoginPage'
+import CatalogPage from './CatalogPage'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
@@ -117,11 +118,12 @@ function DebugDashboard() {
   )
 }
 
-// Trial of the login page mockup -- no routing yet (only one page worth
-// navigating to so far), so a corner link swaps to the old backend-debug
-// view instead of losing it.
+// Trial of the login/catalog mockup -- no routing yet (only these pages
+// worth navigating to so far), so a corner link swaps to the old
+// backend-debug view instead of losing it.
 function App() {
   const [showDebug, setShowDebug] = useState(false)
+  const [loggedIn, setLoggedIn] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
 
   useEffect(() => {
@@ -133,11 +135,18 @@ function App() {
     }
   }, [theme])
 
+  let page = <LoginPage onAuthenticated={() => setLoggedIn(true)} />
+  if (showDebug) {
+    page = <DebugDashboard />
+  } else if (loggedIn) {
+    page = <CatalogPage onLogout={() => setLoggedIn(false)} />
+  }
+
   return (
     <>
-      {showDebug ? <DebugDashboard /> : <LoginPage />}
+      {page}
       <button type="button" className="debug-toggle" onClick={() => setShowDebug((v) => !v)}>
-        {showDebug ? '← Вход' : 'Debug'}
+        {showDebug ? '← Назад' : 'Debug'}
       </button>
       <button
         type="button"
