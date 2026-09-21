@@ -105,6 +105,14 @@ function CompactViewIcon() {
   )
 }
 
+function CollapseIcon({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {open ? <path d="M15 6l-6 6 6 6" /> : <path d="M9 6l6 6-6 6" />}
+    </svg>
+  )
+}
+
 type RadioGroupProps<T extends string> = {
   name: string
   options: { key: T; label: string }[]
@@ -158,13 +166,7 @@ export default function CatalogPage() {
       <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
       <header className="catalog-topbar">
-        <button
-          type="button"
-          className="icon-btn menu-btn"
-          aria-label="Показать/скрыть панель"
-          aria-pressed={sidebarOpen}
-          onClick={() => setSidebarOpen((v) => !v)}
-        >
+        <button type="button" className="icon-btn menu-btn" aria-label="Меню">
           <MenuIcon />
         </button>
 
@@ -240,6 +242,16 @@ export default function CatalogPage() {
         </aside>
 
         <main className="catalog-main">
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            aria-label={sidebarOpen ? 'Скрыть панель фильтров' : 'Показать панель фильтров'}
+            aria-pressed={!sidebarOpen}
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            <CollapseIcon open={sidebarOpen} />
+          </button>
+
           <div className="catalog-main-toolbar">
             <span className="catalog-count">{filtered.length} предметов</span>
           </div>

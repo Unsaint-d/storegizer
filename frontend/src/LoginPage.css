@@ -248,7 +248,11 @@ form {
  * `border` is kept transparent, at the same width, purely to hold the
  * layout box size steady (box-sizing: border-box) -- the visible edge is
  * the box-shadow. */
-input {
+/* Scoped to .login-page -- these are plain `input` rules and this file's
+ * CSS isn't module-scoped, so an unscoped selector here would leak onto
+ * every input on every page (it did: it was bleeding into the catalog
+ * page's search field). */
+.login-page input {
   font: inherit;
   font-size: 15px;
   padding: 0.75rem 0.9rem;
@@ -260,12 +264,12 @@ input {
   transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.15s ease;
 }
 
-input::placeholder {
+.login-page input::placeholder {
   color: var(--muted);
   transition: color 0.3s ease;
 }
 
-input:focus-visible {
+.login-page input:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1.5px var(--accent), inset 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
 }

@@ -54,8 +54,7 @@
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
-.menu-btn:hover,
-.menu-btn[aria-pressed='true'] {
+.menu-btn:hover {
   color: var(--ink);
   background: var(--surface-2);
 }
@@ -261,9 +260,54 @@
 }
 
 .catalog-main {
+  position: relative;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* Straddles the divider between the sidebar and the results, in the
+ * items area rather than the topbar, per the request that the sidebar
+ * toggle live next to what it's toggling. */
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 50%;
+  left: -13px;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 26px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.3s ease;
+}
+
+.sidebar-collapse-btn:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.sidebar-collapse-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 860px) {
+  /* No side-by-side divider to straddle once the sidebar stacks above
+   * the results -- sits as a normal inline button instead. */
+  .sidebar-collapse-btn {
+    position: static;
+    transform: none;
+    width: auto;
+    height: auto;
+    padding: 0.4rem 0.6rem;
+    margin-bottom: 0.75rem;
+  }
 }
 
 .catalog-main-toolbar {
