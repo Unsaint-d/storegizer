@@ -139,7 +139,7 @@ function App() {
   if (showDebug) {
     page = <DebugDashboard />
   } else if (loggedIn) {
-    page = <CatalogPage onLogout={() => setLoggedIn(false)} />
+    page = <CatalogPage />
   }
 
   return (

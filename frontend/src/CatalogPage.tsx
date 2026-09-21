@@ -77,22 +77,6 @@ function SearchIcon() {
   )
 }
 
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  )
-}
-
-function LogoutIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-    </svg>
-  )
-}
-
 function ListViewIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
@@ -146,11 +130,7 @@ function RadioGroup<T extends string>({ name, options, value, onChange }: RadioG
   )
 }
 
-type CatalogPageProps = {
-  onLogout: () => void
-}
-
-export default function CatalogPage({ onLogout }: CatalogPageProps) {
+export default function CatalogPage() {
   const [query, setQuery] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sort, setSort] = useState<SortKey>('name')
@@ -195,19 +175,16 @@ export default function CatalogPage({ onLogout }: CatalogPageProps) {
           </div>
 
           <label className="catalog-search">
-            <SearchIcon />
+            <span className="catalog-search-icon">
+              <SearchIcon />
+            </span>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти предмет или штрихкод..."
+              placeholder="Найти..."
               type="search"
             />
           </label>
-
-          <button type="button" className="catalog-logout" onClick={onLogout}>
-            <LogoutIcon />
-            <span>Выйти</span>
-          </button>
         </header>
 
         <div className={`catalog-body ${sidebarOpen ? 'sidebar-open' : ''}`}>
@@ -266,10 +243,6 @@ export default function CatalogPage({ onLogout }: CatalogPageProps) {
           <main className="catalog-main">
             <div className="catalog-main-toolbar">
               <span className="catalog-count">{filtered.length} предметов</span>
-              <button type="button" className="catalog-add">
-                <PlusIcon />
-                Добавить
-              </button>
             </div>
 
             {filtered.length === 0 ? (
