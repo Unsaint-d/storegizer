@@ -1,6 +1,8 @@
 /* Dark is the default for now while the product is still in trial --
  * light lives under prefers-color-scheme: light below, not the other way
- * around. Revisit once there's an explicit theme toggle. */
+ * around. An explicit choice from the theme toggle (App.tsx) sets
+ * data-theme on <html>, which overrides both this default and the system
+ * preference below -- see the [data-theme] blocks further down. */
 :root {
   --ground: #1b1712;
   --surface: #241f18;
@@ -50,6 +52,48 @@
   }
 }
 
+/* Explicit theme choice from the toggle button. These repeat the same
+ * values as the blocks above rather than just flipping color-scheme,
+ * because a [data-theme] attribute selector needs to outrank the
+ * prefers-color-scheme media query on ITS OWN specificity in order to
+ * override a system preference that disagrees with the user's pick (e.g.
+ * choosing dark while the OS is set to light). */
+:root[data-theme='light'] {
+  --ground: #fbf8f2;
+  --surface: #ffffff;
+  --surface-2: #f3ece0;
+  --ink: #2a231b;
+  --muted: #6b5f4e;
+  --border: #e3d9c7;
+  --accent: #c2793a;
+  --accent-ink: #ffffff;
+  --add: #3f7a4e;
+  --add-bg: #e7f1e7;
+  --remove: #b0483b;
+  --remove-bg: #f7e8e3;
+  --shadow:
+    0 1px 2px rgba(42, 35, 27, 0.06), 0 8px 24px -12px rgba(42, 35, 27, 0.18);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --ground: #1b1712;
+  --surface: #241f18;
+  --surface-2: #2d271e;
+  --ink: #f1e9dc;
+  --muted: #b8ab98;
+  --border: #3c332a;
+  --accent: #e2a25c;
+  --accent-ink: #241a0e;
+  --add: #7cc48c;
+  --add-bg: #26352a;
+  --remove: #e58a7c;
+  --remove-bg: #3a2620;
+  --shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -58,6 +102,7 @@ body {
   margin: 0;
   background: var(--ground);
   color: var(--ink);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 #root {
@@ -72,6 +117,7 @@ h3 {
   color: var(--ink);
   margin: 0;
   text-wrap: balance;
+  transition: color 0.3s ease;
 }
 
 p {
@@ -85,6 +131,7 @@ code {
   padding: 0.1rem 0.4rem;
   border-radius: 6px;
   font-size: 0.9em;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 button {

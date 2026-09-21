@@ -8,6 +8,37 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8081'
 type Item = { id: number; barcode: string; name: string }
 type ScanEvent = { barcode: string; receivedAt: string }
 
+type Theme = 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'storegizer-theme'
+
+function getInitialTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch {
+    // localStorage unavailable (private mode, etc.) -- fall through to system preference
+  }
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.5" />
+      <path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8l1.8-1.8M18 6l1.8-1.8" />
+    </svg>
+  )
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+    </svg>
+  )
+}
+
 function DebugDashboard() {
   const [health, setHealth] = useState<'checking' | 'ok' | 'unreachable'>('checking')
   const [items, setItems] = useState<Item[]>([])
@@ -91,12 +122,30 @@ function DebugDashboard() {
 // view instead of losing it.
 function App() {
   const [showDebug, setShowDebug] = useState(false)
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // ignore -- theme just won't persist across reloads
+    }
+  }, [theme])
 
   return (
     <>
       {showDebug ? <DebugDashboard /> : <LoginPage />}
       <button type="button" className="debug-toggle" onClick={() => setShowDebug((v) => !v)}>
         {showDebug ? '← Вход' : 'Debug'}
+      </button>
+      <button
+        type="button"
+        className="theme-toggle"
+        onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+      >
+        {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
       </button>
     </>
   )

@@ -1,7 +1,13 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import './LoginPage.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+
+// Matches the .field-group grid-template-rows transition duration in
+// LoginPage.css -- the submit button should only pick up its enabled
+// (yellow) look once the login/password fields have finished collapsing,
+// not the instant anonymous mode is selected.
+const FIELD_COLLAPSE_MS = 350
 
 type Mode = 'key' | 'eye'
 
@@ -23,19 +29,66 @@ function EyeIcon() {
   )
 }
 
+function BoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+    </svg>
+  )
+}
+
+function TagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <polygon points="3,4 14,4 21,12 14,20 3,20" />
+    </svg>
+  )
+}
+
+function JarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="7" width="12" height="15" rx="3" />
+      <rect x="9" y="2" width="6" height="5" rx="1.5" />
+    </svg>
+  )
+}
+
+function BarcodeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="2" y="4" width="2" height="16" />
+      <rect x="6" y="4" width="1" height="16" />
+      <rect x="9" y="4" width="3" height="16" />
+      <rect x="14" y="4" width="1" height="16" />
+      <rect x="17" y="4" width="2" height="16" />
+      <rect x="21" y="4" width="1" height="16" />
+    </svg>
+  )
+}
+
+// Cycled across the floaters below so the background reads as a loose mix
+// of storage-adjacent items (box, tag, jar, barcode) instead of plain dots.
+const FLOATER_ICONS = [BoxIcon, TagIcon, JarIcon, BarcodeIcon]
+
+// `top` starts most floaters below the visible panel (>100%) so they drift
+// up INTO view before rising out through the top, rather than popping in
+// already on screen. `delay` is negative so each floater's infinite
+// float-rise loop starts already mid-flight, staggering them from the
+// first frame instead of every floater launching from the bottom at once.
 const FLOATERS = [
-  { size: 120, top: '10%', left: '15%', delay: '0s', duration: '6s', color: 'var(--accent)' },
-  { size: 80, top: '55%', left: '8%', delay: '1s', duration: '5s', color: 'var(--add)' },
-  { size: 150, top: '30%', left: '55%', delay: '0.5s', duration: '7s', color: 'var(--remove)' },
-  { size: 70, top: '70%', left: '60%', delay: '1.8s', duration: '4.5s', color: 'var(--accent)' },
-  { size: 100, top: '15%', left: '75%', delay: '0.2s', duration: '6.5s', color: 'var(--add)' },
-  { size: 60, top: '80%', left: '30%', delay: '1.2s', duration: '4s', color: 'var(--remove)' },
-  { size: 90, top: '4%', left: '45%', delay: '0.8s', duration: '5.5s', color: 'var(--accent)' },
-  { size: 65, top: '40%', left: '88%', delay: '2.2s', duration: '4.5s', color: 'var(--add)' },
-  { size: 110, top: '62%', left: '20%', delay: '0.3s', duration: '7s', color: 'var(--remove)' },
-  { size: 75, top: '90%', left: '70%', delay: '1.5s', duration: '5s', color: 'var(--accent)' },
-  { size: 55, top: '22%', left: '4%', delay: '2.6s', duration: '4s', color: 'var(--add)' },
-  { size: 95, top: '48%', left: '38%', delay: '0.6s', duration: '6s', color: 'var(--remove)' },
+  { size: 120, top: '100%', left: '15%', delay: '-3s', duration: '18s', color: 'var(--accent)', icon: 0 },
+  { size: 80, top: '115%', left: '8%', delay: '-9s', duration: '15s', color: 'var(--add)', icon: 1 },
+  { size: 150, top: '110%', left: '55%', delay: '-6s', duration: '21s', color: 'var(--remove)', icon: 2 },
+  { size: 70, top: '115%', left: '60%', delay: '-2s', duration: '13.5s', color: 'var(--accent)', icon: 3 },
+  { size: 100, top: '110%', left: '75%', delay: '-11s', duration: '19.5s', color: 'var(--add)', icon: 0 },
+  { size: 60, top: '115%', left: '30%', delay: '-4s', duration: '12s', color: 'var(--remove)', icon: 1 },
+  { size: 90, top: '104%', left: '45%', delay: '-13s', duration: '16.5s', color: 'var(--accent)', icon: 2 },
+  { size: 65, top: '110%', left: '88%', delay: '-7s', duration: '13.5s', color: 'var(--add)', icon: 3 },
+  { size: 110, top: '112%', left: '20%', delay: '-2s', duration: '21s', color: 'var(--remove)', icon: 0 },
+  { size: 75, top: '120%', left: '70%', delay: '-14s', duration: '15s', color: 'var(--accent)', icon: 1 },
+  { size: 55, top: '112%', left: '4%', delay: '-8s', duration: '12s', color: 'var(--add)', icon: 2 },
+  { size: 95, top: '113%', left: '38%', delay: '-13s', duration: '18s', color: 'var(--remove)', icon: 3 },
 ]
 
 export default function LoginPage() {
@@ -45,6 +98,16 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [readerEntered, setReaderEntered] = useState(false)
+  const [eyeModeReady, setEyeModeReady] = useState(false)
+
+  useEffect(() => {
+    if (mode !== 'eye') {
+      setEyeModeReady(false)
+      return
+    }
+    const t = setTimeout(() => setEyeModeReady(true), FIELD_COLLAPSE_MS)
+    return () => clearTimeout(t)
+  }, [mode])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -92,93 +155,109 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>
-          <span className="headline-main">Добро пожаловать</span>
-          <span className="headline-sub">в систему домашнего складского учёта!</span>
-        </h1>
-        <p className="subtitle">Авторизуйтесь, чтобы продолжить</p>
-
-        <div className="mode-toggle" role="radiogroup" aria-label="Способ входа">
-          <div className="mode-toggle-track">
-            <span className={`mode-toggle-thumb ${mode === 'eye' ? 'is-eye' : ''}`} aria-hidden="true" />
-            <button
-              type="button"
-              className={mode === 'key' ? 'active' : ''}
-              aria-pressed={mode === 'key'}
-              onClick={() => {
-                setMode('key')
-                setError(null)
-                setReaderEntered(false)
-              }}
-            >
-              <KeyIcon />
-            </button>
-            <button
-              type="button"
-              className={mode === 'eye' ? 'active' : ''}
-              aria-pressed={mode === 'eye'}
-              onClick={() => {
-                setMode('eye')
-                setError(null)
-                setReaderEntered(false)
-              }}
-            >
-              <EyeIcon />
-            </button>
-          </div>
-          <span className="mode-label">
-            {mode === 'key' ? 'вход в учётную запись' : 'вход анонимно (только просмотр)'}
-          </span>
+        <div className="login-card-top">
+          <h1>
+            <span className="headline-main">Добро пожаловать</span>
+            <span className="headline-sub">в систему домашнего складского учёта!</span>
+          </h1>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className={`field-group ${mode === 'key' ? 'is-open' : ''}`}>
-            <div className="field-group-inner">
-              <input
-                value={login}
-                onChange={(e) => setLogin(e.target.value)}
-                placeholder="Логин"
-                autoComplete="username"
-                tabIndex={mode === 'key' ? undefined : -1}
-              />
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                placeholder="Пароль"
-                autoComplete="current-password"
-                tabIndex={mode === 'key' ? undefined : -1}
-              />
+        <div className="login-card-bottom">
+          <p className="subtitle">Авторизуйтесь, чтобы продолжить</p>
+
+          <div className="mode-toggle" role="radiogroup" aria-label="Способ входа">
+            <div className="mode-toggle-track">
+              <span className={`mode-toggle-thumb ${mode === 'eye' ? 'is-eye' : ''}`} aria-hidden="true" />
+              <button
+                type="button"
+                className={mode === 'key' ? 'active' : ''}
+                aria-pressed={mode === 'key'}
+                onClick={() => {
+                  setMode('key')
+                  setError(null)
+                  setReaderEntered(false)
+                }}
+              >
+                <KeyIcon />
+              </button>
+              <button
+                type="button"
+                className={mode === 'eye' ? 'active' : ''}
+                aria-pressed={mode === 'eye'}
+                onClick={() => {
+                  setMode('eye')
+                  setError(null)
+                  setReaderEntered(false)
+                }}
+              >
+                <EyeIcon />
+              </button>
             </div>
+            <span className="mode-label">
+              {mode === 'key' ? 'вход в учётную запись' : 'вход анонимно (только просмотр)'}
+            </span>
           </div>
 
-          <button type="submit" className="submit" disabled={submitting}>
-            {submitting ? 'Входим…' : 'Войти'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit}>
+            <div className={`field-group ${mode === 'key' ? 'is-open' : ''}`}>
+              <div className="field-group-inner">
+                <input
+                  value={login}
+                  onChange={(e) => setLogin(e.target.value)}
+                  placeholder="Логин"
+                  autoComplete="username"
+                  tabIndex={mode === 'key' ? undefined : -1}
+                />
+                <input
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  placeholder="Пароль"
+                  autoComplete="current-password"
+                  tabIndex={mode === 'key' ? undefined : -1}
+                />
+              </div>
+            </div>
 
-        {readerEntered && (
-          <p className="reader-note">Вы вошли как читатель (демо, каталог ещё не подключён).</p>
-        )}
+            <button
+              type="submit"
+              className="submit"
+              disabled={
+                submitting || (mode === 'key' ? !login.trim() || !password.trim() : !eyeModeReady)
+              }
+            >
+              {submitting ? 'Входим…' : 'Войти'}
+            </button>
+          </form>
+
+          {readerEntered && (
+            <p className="reader-note">Вы вошли как читатель (демо, каталог ещё не подключён).</p>
+          )}
+        </div>
       </div>
 
       <div className="brand-panel" aria-hidden="true">
         <div className="floaters">
-          {FLOATERS.map((f, i) => (
-            <span
-              key={i}
-              className="floater"
-              style={{
-                width: f.size,
-                height: f.size,
-                top: f.top,
-                left: f.left,
-                background: f.color,
-                animationDelay: f.delay,
-                animationDuration: f.duration,
-              }}
-            />
-          ))}
+          {FLOATERS.map((f, i) => {
+            const Icon = FLOATER_ICONS[f.icon]
+            return (
+              <span
+                key={i}
+                className="floater"
+                style={{
+                  width: f.size,
+                  height: f.size,
+                  top: f.top,
+                  left: f.left,
+                  color: f.color,
+                  animationDelay: f.delay,
+                  animationDuration: f.duration,
+                }}
+              >
+                <Icon />
+              </span>
+            )
+          })}
         </div>
         <div className="brand-mark">
           <span className="brand-word">Storegizer</span>
