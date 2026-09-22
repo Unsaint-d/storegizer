@@ -74,6 +74,25 @@ export function BarcodeIcon() {
   )
 }
 
+// Exported so App (the global fixed toggle) and CatalogPage (its inline
+// topbar toggle) share the same glyphs instead of each drawing their own.
+export function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.5" />
+      <path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8l1.8-1.8M18 6l1.8-1.8" />
+    </svg>
+  )
+}
+
+export function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+    </svg>
+  )
+}
+
 // Cycled across the floaters below so the background reads as a loose mix
 // of storage-adjacent items (box, tag, jar, barcode) instead of plain dots.
 const FLOATER_ICONS = [BoxIcon, TagIcon, JarIcon, BarcodeIcon]

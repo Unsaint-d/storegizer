@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
-import { BarcodeIcon, BoxIcon, JarIcon, TagIcon } from './LoginPage'
+import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
+
+type Theme = 'light' | 'dark'
 
 // Draft mock -- there is no /api/items-with-filters backend yet, so this
 // page works entirely off a hardcoded list to give a sense of the catalog
@@ -138,7 +140,12 @@ function RadioGroup<T extends string>({ name, options, value, onChange }: RadioG
   )
 }
 
-export default function CatalogPage() {
+type CatalogPageProps = {
+  theme: Theme
+  onToggleTheme: () => void
+}
+
+export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) {
   const [query, setQuery] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sort, setSort] = useState<SortKey>('name')
@@ -166,26 +173,43 @@ export default function CatalogPage() {
       <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
       <header className="catalog-topbar">
-        <button type="button" className="icon-btn menu-btn" aria-label="Меню">
-          <MenuIcon />
-        </button>
+        {/* Fixed-width left zone (menu + brand) so its right edge lands on
+         * the same x as .catalog-body's sidebar/main divider below --
+         * see .catalog-topbar-left in CatalogPage.css. Purely visual
+         * symmetry, not an actual layout dependency between the two. */}
+        <div className="catalog-topbar-left">
+          <button type="button" className="icon-btn menu-btn" aria-label="Меню">
+            <MenuIcon />
+          </button>
 
-        <div className="catalog-brand">
-          <span className="catalog-brand-word">Storegizer</span>
-          <span className="catalog-brand-tab">каталог</span>
+          <div className="catalog-brand">
+            <span className="catalog-brand-word">Storegizer</span>
+            <span className="catalog-brand-tab">каталог</span>
+          </div>
         </div>
 
-        <label className="catalog-search">
-          <span className="catalog-search-icon">
-            <SearchIcon />
-          </span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Найти..."
-            type="search"
-          />
-        </label>
+        <div className="catalog-topbar-right">
+          <label className="catalog-search">
+            <span className="catalog-search-icon">
+              <SearchIcon />
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Найти..."
+              type="search"
+            />
+          </label>
+
+          <button
+            type="button"
+            className="icon-btn theme-toggle-btn"
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+          >
+            {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
+          </button>
+        </div>
       </header>
 
       <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>

@@ -1,4 +1,8 @@
 .catalog-page {
+  /* Declared here (not just on .catalog-body) so .catalog-topbar-left --
+   * a sibling of .catalog-body, not a descendant -- can also reference it
+   * to line its edge up with the sidebar column below. */
+  --sidebar-w: 220px;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -58,6 +62,37 @@
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.catalog-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.catalog-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+/* >=861px matches .catalog-body's own two-column breakpoint: the left
+ * zone (menu + brand) becomes a fixed-width slot -- the same width as
+ * .catalog-body's left padding plus its sidebar column -- so the search
+ * field starts exactly where the sidebar/main divider sits below it.
+ * Purely visual symmetry (see the comment in CatalogPage.tsx); nothing
+ * here actually reads the sidebar's open/collapsed state. */
+@media (min-width: 861px) {
+  .catalog-topbar {
+    gap: 0;
+  }
+
+  .catalog-topbar-left {
+    width: calc(0.75rem + var(--sidebar-w));
+  }
 }
 
 .menu-btn {
@@ -161,10 +196,27 @@
   display: none;
 }
 
+.theme-toggle-btn {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.theme-toggle-btn:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.theme-toggle-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
 /* ---------- body: sidebar + main, one shared frame ---------- */
 
 .catalog-body {
-  --sidebar-w: 220px;
   position: relative;
   flex: 1;
   display: grid;
@@ -321,11 +373,11 @@
 .sidebar-collapse-btn {
   position: absolute;
   top: 50%;
-  left: calc(0.75rem + var(--sidebar-w) - 13px);
+  left: calc(0.75rem + var(--sidebar-w) - 8px);
   transform: translateY(-50%);
   z-index: 2;
-  width: 26px;
-  height: 44px;
+  width: 16px;
+  height: 64px;
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
@@ -344,7 +396,7 @@
  * padding ends -- so the button pokes out past the frame edge instead
  * of sitting mostly inside it, overlapping the item cards. */
 .catalog-body.sidebar-collapsed .sidebar-collapse-btn {
-  left: -13px;
+  left: -8px;
 }
 
 .sidebar-collapse-btn:hover {
@@ -353,8 +405,8 @@
 }
 
 .sidebar-collapse-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 @media (max-width: 860px) {

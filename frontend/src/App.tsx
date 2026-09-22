@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import LoginPage from './LoginPage'
+import LoginPage, { MoonIcon, SunIcon } from './LoginPage'
 import CatalogPage from './CatalogPage'
 import './App.css'
 
@@ -21,23 +21,6 @@ function getInitialTheme(): Theme {
     // localStorage unavailable (private mode, etc.) -- fall through to system preference
   }
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
-}
-
-function SunIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4.5" />
-      <path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8l1.8-1.8M18 6l1.8-1.8" />
-    </svg>
-  )
-}
-
-function MoonIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
-    </svg>
-  )
 }
 
 function DebugDashboard() {
@@ -135,11 +118,17 @@ function App() {
     }
   }, [theme])
 
+  const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+  const showingCatalog = !showDebug && loggedIn
+
   let page = <LoginPage onAuthenticated={() => setLoggedIn(true)} />
   if (showDebug) {
     page = <DebugDashboard />
   } else if (loggedIn) {
-    page = <CatalogPage />
+    // Catalog gets its own theme toggle inline in the topbar (next to the
+    // search field), so the floating corner one below is hidden for it --
+    // see the `!showingCatalog` guard.
+    page = <CatalogPage theme={theme} onToggleTheme={toggleTheme} />
   }
 
   return (
@@ -148,14 +137,16 @@ function App() {
       <button type="button" className="debug-toggle" onClick={() => setShowDebug((v) => !v)}>
         {showDebug ? '← Назад' : 'Debug'}
       </button>
-      <button
-        type="button"
-        className="theme-toggle"
-        onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-        aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
-      >
-        {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
-      </button>
+      {!showingCatalog && (
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+        >
+          {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
+        </button>
+      )}
     </>
   )
 }
