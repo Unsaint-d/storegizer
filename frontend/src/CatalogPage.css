@@ -25,14 +25,20 @@
   }
 }
 
+/* Opacity only -- deliberately no transform (even translateY(0) at rest,
+ * via animation-fill-mode:both, counts as "a transform other than none"
+ * and creates a containing block for position:fixed descendants). That
+ * silently broke .mobile-filters-fab and every fixed overlay in this
+ * component: instead of anchoring to the real viewport, "bottom: 1.25rem"
+ * etc. resolved against .catalog-page's own (content-height, scrollable
+ * on mobile) box, so they drifted down with a tall item list instead of
+ * staying pinned in view. */
 @keyframes catalog-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -278,6 +284,15 @@
   color: var(--ink);
   outline: none;
   min-width: 0;
+  /* The placeholder is long ("Найти или выполнить команду...") and this
+   * field can be quite narrow (mobile, collapsed-to-icon width mid-
+   * expand) -- without this it just gets hard-clipped mid-word at the
+   * edge instead of trailing off cleanly. white-space:nowrap is needed
+   * too (not just overflow+text-overflow) for ellipsis to actually
+   * engage on an <input>. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   /* type="search" gets its own native rounded-border chrome in
    * WebKit/Blink (a plain `border: none` on the input doesn't remove
    * it) -- appearance:none hands all of its styling back to this rule
@@ -542,11 +557,14 @@
     gap 0.3s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
-/* Collapsed by the menu button (works at any viewport width, not just
- * narrow ones): the sidebar track shrinks to nothing and the results
- * panel takes the full width. Kept as two grid tracks in both states
- * (220px/0px, never 2-tracks-to-1) so grid-template-columns can actually
- * interpolate between them -- animating 2 tracks down to 1 just snaps. */
+/* Only actually reachable on mobile now (.mobile-filters-fab -- desktop
+ * has no way left to collapse the filters, by request). This base rule
+ * still matters there too, though: it's what .catalog-sidebar's own
+ * mobile media-query rules further down override away from (the width
+ * collapse here is meaningless once mobile forces a single grid column,
+ * but keeping two tracks -- 220px/0px, never 2-tracks-to-1 -- means
+ * grid-template-columns could still interpolate if this were ever shown
+ * at a wider viewport again). */
 .catalog-body.sidebar-collapsed {
   grid-template-columns: 0px 1fr;
   gap: 0;
@@ -630,20 +648,20 @@
   flex-shrink: 0;
 }
 
-.sidebar-view-switch {
-  margin-top: auto;
+/* Lives in .catalog-main-toolbar now, top-right next to the item count --
+ * used to be a full-width row pinned to the bottom of the sidebar. */
+.view-switch {
+  flex-shrink: 0;
   display: flex;
-  gap: 0.4rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-  transition: border-color 0.3s ease;
+  gap: 0.3rem;
 }
 
-.sidebar-view-switch button {
-  flex: 1;
+.view-switch button {
+  flex-shrink: 0;
   display: grid;
   place-items: center;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: 8px;
   background: var(--surface-2);
@@ -652,16 +670,16 @@
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.sidebar-view-switch button:hover {
+.view-switch button:hover {
   color: var(--ink);
 }
 
-.sidebar-view-switch button.active {
+.view-switch button.active {
   background: var(--accent);
   color: var(--accent-ink);
 }
 
-.sidebar-view-switch svg {
+.view-switch svg {
   width: 16px;
   height: 16px;
 }
@@ -678,67 +696,10 @@
   padding-right: 0.6rem;
 }
 
-/* Straddles the divider between the sidebar and the results, in the
- * items area rather than the topbar, per the request that the sidebar
- * toggle live next to what it's toggling. A child of .catalog-body
- * (not .catalog-main) on purpose: .catalog-main has overflow-y:auto,
- * which per spec forces its overflow-x to `auto` too -- that clipped
- * this button entirely, since centering it on the divider means most
- * of it sits outside .catalog-main's own box. .catalog-body has no
- * overflow set, so nothing clips it there. */
-.sidebar-collapse-btn {
-  position: absolute;
-  top: 50%;
-  left: calc(0.75rem + var(--sidebar-w) - 8px);
-  transform: translateY(-50%);
-  z-index: 2;
-  width: 16px;
-  height: 64px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--muted);
-  cursor: pointer;
-  /* `left` matches .catalog-body's grid-template-columns transition
-   * (same 0.3s/cubic-bezier) so the button arrives exactly as the sidebar
-   * finishes collapsing instead of beating it there. */
-  transition: left 0.3s cubic-bezier(0.65, 0, 0.35, 1), background-color 0.2s ease, color 0.2s ease,
-    border-color 0.3s ease;
-}
-
-/* Centered on .catalog-body's own outer border (x:0), not on where its
- * padding ends -- so the button pokes out past the frame edge instead
- * of sitting mostly inside it, overlapping the item cards. */
-.catalog-body.sidebar-collapsed .sidebar-collapse-btn {
-  left: -8px;
-}
-
-.sidebar-collapse-btn:hover {
-  color: var(--ink);
-  background: var(--surface);
-}
-
-.sidebar-collapse-btn svg {
-  width: 12px;
-  height: 12px;
-}
-
-@media (max-width: 860px) {
-  /* Replaced by .mobile-filters-fab below -- straddling a sidebar/main
-   * divider that no longer exists once the sidebar becomes a bottom
-   * sheet (see .catalog-sidebar's own mobile rule further down) doesn't
-   * make sense here any more. */
-  .sidebar-collapse-btn {
-    display: none;
-  }
-}
-
 .catalog-main-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
 }
@@ -944,11 +905,26 @@
   transition: color 0.3s ease;
 }
 
+/* Wraps the separator + tags pair so both can be hidden as one unit on
+ * mobile (below) -- display:contents keeps it invisible to layout
+ * otherwise, so .item-row-meta's flex children are unaffected. */
+.item-row-tags-group {
+  display: contents;
+}
+
 .item-row-tags {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  /* Row already shows barcode + qty on mobile's narrower width -- tags
+   * on top of that crowded the line and were usually truncated anyway. */
+  .item-row-tags-group {
+    display: none;
+  }
 }
 
 .item-row-info {

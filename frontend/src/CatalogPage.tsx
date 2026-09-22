@@ -80,6 +80,16 @@ function locationPath(item: CatalogItem): string {
   return item.location.join(':')
 }
 
+// Cards show just the bin/cell itself (the path's last segment) by
+// default -- the full "Ванная:Левый шкаф:Нижняя дверца:Верхняя полка"
+// chain is rarely what you need at a glance, and mostly just pushed other
+// content around or got truncated anyway. The full path is still one
+// hover away via the native title tooltip (see .item-location usages).
+function locationShort(item: CatalogItem): string {
+  const last = item.location[item.location.length - 1] ?? ''
+  return item.location.length > 1 ? `…${last}` : last
+}
+
 // ---------- search: prefix parsing + fuzzy matching ----------
 //
 // Real (if simple) matching rather than a plain .includes(): exact ->
@@ -204,14 +214,6 @@ function LargeViewIcon() {
   )
 }
 
-function CollapseIcon({ open }: { open: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {open ? <path d="M15 6l-6 6 6 6" /> : <path d="M9 6l6 6-6 6" />}
-    </svg>
-  )
-}
-
 // Mobile-only floating button that opens the filters bottom sheet --
 // classic "two sliders" filter glyph.
 function FiltersIcon() {
@@ -273,7 +275,9 @@ function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: 
       <div className="item-row-body">
         <div className="item-row-heading">
           <h3>{item.name}</h3>
-          <p className="item-location">{locationPath(item)}</p>
+          <p className="item-location" title={locationPath(item)}>
+            {locationShort(item)}
+          </p>
         </div>
         <div className="item-row-meta">
           <code className="item-barcode">{item.barcode}</code>
@@ -281,13 +285,15 @@ function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: 
             |
           </span>
           <span className="item-qty">×{item.qty}</span>
+          {/* Wrapped together (not a bare fragment) so the pair can be
+           * hidden as one unit on mobile -- see .item-row-tags-group. */}
           {topTags && (
-            <>
+            <span className="item-row-tags-group">
               <span className="item-row-meta-sep" aria-hidden="true">
                 |
               </span>
               <span className="item-row-tags">{topTags}</span>
-            </>
+            </span>
           )}
         </div>
       </div>
@@ -318,7 +324,9 @@ function ItemLargeCard({ item }: { item: CatalogItem }) {
           <h3>{item.name}</h3>
           <span className="item-qty">×{item.qty}</span>
         </div>
-        <p className="item-location">{locationPath(item)}</p>
+        <p className="item-location" title={locationPath(item)}>
+          {locationShort(item)}
+        </p>
         <div className="item-card-large-meta">
           <span className="item-category-pill">{item.category}</span>
           {item.tags.map((tag) => (
@@ -368,6 +376,10 @@ type CatalogPageProps = {
 const ICON_MORPH_INTERVAL_MS = 30000
 const ICON_MORPH_HOLD_MS = 1400
 
+// Matches .search-dropdown's own opacity/transform transition duration --
+// see openDetail for why clearing the query waits this long.
+const SEARCH_DROPDOWN_CLOSE_MS = 200
+
 export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
@@ -387,6 +399,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchFocusedRef = useRef(searchFocused)
   searchFocusedRef.current = searchFocused
+  const clearQueryTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
   const searchActive = searchFocused
 
@@ -438,6 +451,12 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (clearQueryTimeoutRef.current) clearTimeout(clearQueryTimeoutRef.current)
+    }
+  }, [])
+
   function closeSearch() {
     setSearchFocused(false)
     searchInputRef.current?.blur()
@@ -445,11 +464,17 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
 
   // Opening a result is the only thing that "selects" a search -- it
   // shows the item's detail card and resets the command line, same as
-  // running a command clears the prompt.
+  // running a command clears the prompt. The query is cleared only after
+  // the dropdown has finished fading out (closeSearch fires first), not
+  // in the same instant -- clearing it immediately switched the still-
+  // visible dropdown's content to the empty-query hint (prefix commands
+  // and all) for the length of its own closing fade, flashing that in
+  // place of the results the user actually just clicked.
   function openDetail(item: CatalogItem) {
     setDetailItem(item)
-    setQuery('')
     closeSearch()
+    if (clearQueryTimeoutRef.current) clearTimeout(clearQueryTimeoutRef.current)
+    clearQueryTimeoutRef.current = setTimeout(() => setQuery(''), SEARCH_DROPDOWN_CLOSE_MS)
   }
 
   function closeDetail() {
@@ -527,7 +552,14 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onKeyDown={handleSearchKeyDown}
-                placeholder="Найти или выполнить команду... (например, #tags: гигиена)"
+                // Short on purpose -- text-overflow:ellipsis doesn't
+                // reliably engage for an <input>'s placeholder/value in
+                // every engine (it didn't here), so a placeholder long
+                // enough to need truncating on a narrow mobile field just
+                // got hard-clipped mid-word instead. The fuller
+                // explanation (prefixes etc.) lives in the dropdown hint
+                // once focused, not the placeholder itself.
+                placeholder="Найти или команда..."
                 type="search"
               />
             </label>
@@ -602,16 +634,6 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
       <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
 
       <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
-        <button
-          type="button"
-          className="sidebar-collapse-btn"
-          aria-label={sidebarOpen ? 'Скрыть панель фильтров' : 'Показать панель фильтров'}
-          aria-pressed={!sidebarOpen}
-          onClick={() => setSidebarOpen((v) => !v)}
-        >
-          <CollapseIcon open={sidebarOpen} />
-        </button>
-
         <aside className="catalog-sidebar">
           {/* Fixed-width inner box -- the outer <aside> is what actually
            * animates (width on desktop, height on mobile) and clips this
@@ -638,8 +660,14 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               <h2>Фильтры</h2>
               <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
             </div>
+          </div>
+        </aside>
 
-            <div className="sidebar-view-switch" role="radiogroup" aria-label="Вид отображения">
+        <main className="catalog-main">
+          <div className="catalog-main-toolbar">
+            <span className="catalog-count">{filtered.length} предметов</span>
+
+            <div className="view-switch" role="radiogroup" aria-label="Вид отображения">
               <button
                 type="button"
                 className={view === 'list' ? 'active' : ''}
@@ -669,12 +697,6 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               </button>
             </div>
           </div>
-        </aside>
-
-        <main className="catalog-main">
-          <div className="catalog-main-toolbar">
-            <span className="catalog-count">{filtered.length} предметов</span>
-          </div>
 
           {filtered.length === 0 ? (
             <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
@@ -690,7 +712,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                     </div>
                     <div className="item-body">
                       <h3>{item.name}</h3>
-                      <p className="item-location">{locationPath(item)}</p>
+                      <p className="item-location" title={locationPath(item)}>
+                        {locationShort(item)}
+                      </p>
                       <code className="item-barcode">{item.barcode}</code>
                     </div>
                     <span className="item-qty">×{item.qty}</span>
