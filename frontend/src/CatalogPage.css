@@ -7,6 +7,20 @@
   animation: catalog-in 0.4s ease both;
 }
 
+/* Side-by-side layout only (matches .catalog-body's own two-column
+ * breakpoint below): the page is pinned to exactly the viewport height
+ * instead of growing with content, so .catalog-sidebar -- a stretched
+ * grid item next to .catalog-main -- keeps the same position and size no
+ * matter how many items are in the list or which view mode is active.
+ * .catalog-main scrolls internally instead of the whole page. */
+@media (min-width: 861px) {
+  .catalog-page {
+    height: 100svh;
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+
 @keyframes catalog-in {
   from {
     opacity: 0;
@@ -301,7 +315,11 @@
   background: var(--surface-2);
   color: var(--muted);
   cursor: pointer;
-  transition: left 0.2s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.3s ease;
+  /* `left` matches .catalog-body's grid-template-columns transition
+   * (same 0.3s/cubic-bezier) so the button arrives exactly as the sidebar
+   * finishes collapsing instead of beating it there. */
+  transition: left 0.3s cubic-bezier(0.65, 0, 0.35, 1), background-color 0.2s ease, color 0.2s ease,
+    border-color 0.3s ease;
 }
 
 /* Centered on .catalog-body's own outer border (x:0), not on where its
