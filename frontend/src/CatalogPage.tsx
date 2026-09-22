@@ -189,6 +189,16 @@ export default function CatalogPage() {
       </header>
 
       <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+        <button
+          type="button"
+          className="sidebar-collapse-btn"
+          aria-label={sidebarOpen ? 'Скрыть панель фильтров' : 'Показать панель фильтров'}
+          aria-pressed={!sidebarOpen}
+          onClick={() => setSidebarOpen((v) => !v)}
+        >
+          <CollapseIcon open={sidebarOpen} />
+        </button>
+
         <aside className="catalog-sidebar">
           <div className="sidebar-section">
             <h2>Сортировка</h2>
@@ -242,16 +252,6 @@ export default function CatalogPage() {
         </aside>
 
         <main className="catalog-main">
-          <button
-            type="button"
-            className="sidebar-collapse-btn"
-            aria-label={sidebarOpen ? 'Скрыть панель фильтров' : 'Показать панель фильтров'}
-            aria-pressed={!sidebarOpen}
-            onClick={() => setSidebarOpen((v) => !v)}
-          >
-            <CollapseIcon open={sidebarOpen} />
-          </button>
-
           <div className="catalog-main-toolbar">
             <span className="catalog-count">{filtered.length} предметов</span>
           </div>

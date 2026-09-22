@@ -150,9 +150,11 @@
 /* ---------- body: sidebar + main, one shared frame ---------- */
 
 .catalog-body {
+  --sidebar-w: 220px;
+  position: relative;
   flex: 1;
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: var(--sidebar-w) 1fr;
   gap: 1rem;
   min-height: 0;
   border: 1px solid var(--border);
@@ -260,7 +262,6 @@
 }
 
 .catalog-main {
-  position: relative;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -268,14 +269,16 @@
 
 /* Straddles the divider between the sidebar and the results, in the
  * items area rather than the topbar, per the request that the sidebar
- * toggle live next to what it's toggling. */
+ * toggle live next to what it's toggling. A child of .catalog-body
+ * (not .catalog-main) on purpose: .catalog-main has overflow-y:auto,
+ * which per spec forces its overflow-x to `auto` too -- that clipped
+ * this button entirely, since centering it on the divider means most
+ * of it sits outside .catalog-main's own box. .catalog-body has no
+ * overflow set, so nothing clips it there. */
 .sidebar-collapse-btn {
   position: absolute;
   top: 50%;
-  /* Centers the button ON the sidebar's divider line, not on
-   * .catalog-main's own edge: the divider sits a full grid `gap` (1rem)
-   * to the left of that edge, plus half the button's own width. */
-  left: calc(-1rem - 13px);
+  left: calc(0.75rem + var(--sidebar-w) - 13px);
   transform: translateY(-50%);
   z-index: 2;
   width: 26px;
@@ -287,7 +290,11 @@
   background: var(--surface-2);
   color: var(--muted);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.3s ease;
+  transition: left 0.2s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.3s ease;
+}
+
+.catalog-body.sidebar-collapsed .sidebar-collapse-btn {
+  left: calc(0.75rem - 13px);
 }
 
 .sidebar-collapse-btn:hover {
@@ -302,14 +309,31 @@
 
 @media (max-width: 860px) {
   /* No side-by-side divider to straddle once the sidebar stacks above
-   * the results -- sits as a normal inline button instead. */
-  .sidebar-collapse-btn {
+   * the results -- sits back in normal flow as an inline button, and
+   * `order` puts it right above the results rather than above the
+   * (possibly hidden) sidebar it would otherwise land before as the
+   * first DOM child of .catalog-body. */
+  .sidebar-collapse-btn,
+  .catalog-body.sidebar-collapsed .sidebar-collapse-btn {
     position: static;
+    left: auto;
     transform: none;
     width: auto;
     height: auto;
     padding: 0.4rem 0.6rem;
-    margin-bottom: 0.75rem;
+    margin: 0 0 0.75rem 0;
+  }
+
+  .sidebar-collapse-btn {
+    order: 2;
+  }
+
+  .catalog-sidebar {
+    order: 1;
+  }
+
+  .catalog-main {
+    order: 3;
   }
 }
 
