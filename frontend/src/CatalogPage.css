@@ -104,7 +104,20 @@
  * focus -- shrinks out of the way. Both driven by the same
  * .search-active class, so they animate together. */
 @media (max-width: 640px) {
+  /* Logo centered in its own right, independent of however wide the menu
+   * button or the search+theme cluster happen to be -- so it stays
+   * .catalog-topbar { position:relative } lets this skip right over
+   * .catalog-topbar-left (not itself positioned) as the containing block,
+   * rather than centering within just that narrower left zone. */
+  .catalog-topbar {
+    position: relative;
+  }
+
   .catalog-brand {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     max-width: 170px;
     opacity: 1;
     overflow: hidden;
@@ -114,6 +127,14 @@
   .catalog-topbar.search-active .catalog-brand {
     max-width: 0;
     opacity: 0;
+  }
+
+  /* Search + theme sit together in the top-right corner instead of
+   * spreading across the rest of the row -- still flex:1 (inherited) so
+   * this box's own right edge reaches the topbar's right edge, just with
+   * its content pinned to that edge instead of starting at its left. */
+  .catalog-topbar-right {
+    justify-content: flex-end;
   }
 
   .catalog-search-wrap {
@@ -331,9 +352,15 @@
 
 .search-dropdown {
   position: absolute;
-  /* Flush against the search field, no gap -- see .catalog-search.is-open
-   * for the matching square-cornered seam on the field's own bottom. */
-  top: 100%;
+  /* Slightly INTO the search field (not flush at 100%) -- .catalog-search
+   * keeps its full focus ring (accent border + soft glow) on every edge
+   * including the bottom even while .is-open, so at a flush 100% that ring
+   * shows as a bold accent line right at the seam. Overlapping by more
+   * than the ring's own inset extent (border + glow, ~4px) lets this
+   * opaque panel paint over it instead of trying to selectively suppress
+   * just one edge of a shadow-based ring. See .catalog-search.is-open for
+   * the matching square-cornered look this lines up against. */
+  top: calc(100% - 5px);
   left: 0;
   right: 0;
   max-height: min(70vh, 560px);
@@ -700,32 +727,12 @@
 }
 
 @media (max-width: 860px) {
-  /* No side-by-side divider to straddle once the sidebar stacks above
-   * the results -- sits back in normal flow as an inline button, and
-   * `order` puts it right above the results rather than above the
-   * (possibly hidden) sidebar it would otherwise land before as the
-   * first DOM child of .catalog-body. */
-  .sidebar-collapse-btn,
-  .catalog-body.sidebar-collapsed .sidebar-collapse-btn {
-    position: static;
-    left: auto;
-    transform: none;
-    width: auto;
-    height: auto;
-    padding: 0.4rem 0.6rem;
-    margin: 0 0 0.75rem 0;
-  }
-
+  /* Replaced by .mobile-filters-fab below -- straddling a sidebar/main
+   * divider that no longer exists once the sidebar becomes a bottom
+   * sheet (see .catalog-sidebar's own mobile rule further down) doesn't
+   * make sense here any more. */
   .sidebar-collapse-btn {
-    order: 2;
-  }
-
-  .catalog-sidebar {
-    order: 1;
-  }
-
-  .catalog-main {
-    order: 3;
+    display: none;
   }
 }
 
@@ -1175,38 +1182,108 @@
 /* ---------- responsive ---------- */
 
 @media (max-width: 860px) {
-  /* Stacked instead of side-by-side: an open sidebar sits above the
-   * results as its own full-width block rather than squeezing into a
-   * fixed 220px column. Collapsing it here can't reuse the desktop
-   * width-collapse trick (grid-template-columns is a single 1fr track in
-   * this layout, nothing to shrink), so it gets its own max-height
-   * collapse instead -- generous enough to cover the filter panel's real
-   * height, animated together with its padding so it closes flush rather
-   * than leaving a padded sliver. */
   .catalog-body,
   .catalog-body.sidebar-collapsed {
     grid-template-columns: 1fr;
   }
 
+  /* The sidebar becomes a bottom sheet instead of an inline collapsible
+   * block: fixed over the bottom 5/8 of the viewport, slid fully off-
+   * screen when closed rather than height-collapsed in place. Opened via
+   * .mobile-filters-fab (the divider-straddling chevron button makes no
+   * sense once there's no divider to straddle, so it's hidden above). */
   .catalog-sidebar {
-    max-height: 800px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 21;
+    height: 62.5vh;
+    max-height: none;
     border-right: none;
-    border-bottom: 1px solid var(--border);
-    transition: max-height 0.35s cubic-bezier(0.65, 0, 0.35, 1), border-color 0.3s ease, opacity 0.2s ease;
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    /* Needs its own opaque fill now -- on desktop this sits inside
+     * .catalog-body's own surface background and never needed one, but as
+     * a fixed overlay above the dimmed page it would otherwise be
+     * see-through. */
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+    transition: transform 0.35s cubic-bezier(0.65, 0, 0.35, 1), border-color 0.3s ease,
+      background-color 0.3s ease;
   }
 
   .catalog-body.sidebar-collapsed .catalog-sidebar {
-    max-height: 0;
-    border-bottom-color: transparent;
+    transform: translateY(100%);
+    pointer-events: none;
   }
 
   .catalog-sidebar-inner {
-    padding: 0.25rem 0.25rem 1rem;
+    padding: 1rem 1.1rem 1.5rem;
+  }
+}
+
+.mobile-filters-fab {
+  display: none;
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 22;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--accent-ink);
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.15s ease;
+}
+
+.mobile-filters-fab:hover {
+  filter: brightness(1.05);
+}
+
+.mobile-filters-fab:active {
+  transform: scale(0.94);
+}
+
+.mobile-filters-fab svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Dims the part of the screen the bottom sheet doesn't already cover
+ * itself (the sheet is opaque, so this only reads as visible in the
+ * remaining ~3/8 above it) -- same look/technique as .search-overlay. */
+.mobile-filters-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.mobile-filters-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (max-width: 860px) {
+  .mobile-filters-fab {
+    display: grid;
   }
 
-  .catalog-search {
-    order: 1;
-    flex-basis: 100%;
+  .mobile-filters-overlay {
+    display: block;
   }
 }
 

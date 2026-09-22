@@ -362,15 +362,25 @@ form {
     position: fixed;
     inset: 0;
     z-index: 0;
-    padding-top: 4rem;
+    /* Small and high up on purpose: the card below is vertically centered
+     * (see .login-page) and can grow tall enough (key mode, both fields
+     * open) to reach nearly halfway up the screen -- this used to sit low
+     * and large enough that the card's edge cut across the barcode glyph.
+     * Kept well clear rather than tuned to just barely fit the current
+     * content height, so smaller day-to-day copy changes don't reopen it. */
+    padding-top: 1.5rem;
+  }
+
+  .brand-mark {
+    gap: 0.5rem;
   }
 
   .brand-word {
-    font-size: clamp(30px, 10vw, 42px);
+    font-size: clamp(24px, 7vw, 32px);
   }
 
   .brand-barcode {
-    height: 22px;
+    height: 16px;
   }
 }
 

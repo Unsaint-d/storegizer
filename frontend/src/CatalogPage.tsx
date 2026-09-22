@@ -212,6 +212,19 @@ function CollapseIcon({ open }: { open: boolean }) {
   )
 }
 
+// Mobile-only floating button that opens the filters bottom sheet --
+// classic "two sliders" filter glyph.
+function FiltersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 7h6M13 7h8" />
+      <circle cx="10" cy="7" r="2.3" />
+      <path d="M3 17h10M17 17h4" />
+      <circle cx="14" cy="17" r="2.3" />
+    </svg>
+  )
+}
+
 function ItemIcon({ icon }: { icon: CatalogItem['icon'] }) {
   const Icon = ITEM_ICONS[icon]
   return <Icon />
@@ -358,7 +371,12 @@ const ICON_MORPH_HOLD_MS = 1400
 export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // Desktop starts with filters open (there's room); mobile starts closed,
+  // shown on demand via the floating filters button instead of an inline
+  // panel (see .mobile-filters-fab / the >=861px vs <=860px CSS split).
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth > 860,
+  )
   const [sort, setSort] = useState<SortKey>('name')
   const [category, setCategory] = useState<string>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
@@ -683,6 +701,24 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
           )}
         </main>
       </div>
+
+      {/* Mobile only (see the <=860px CSS): the inline collapsible sidebar
+       * becomes a bottom sheet instead, opened via this floating button
+       * rather than the desktop's divider-straddling chevron. */}
+      <button
+        type="button"
+        className="mobile-filters-fab"
+        aria-label={sidebarOpen ? 'Скрыть фильтры' : 'Показать фильтры'}
+        aria-pressed={sidebarOpen}
+        onClick={() => setSidebarOpen((v) => !v)}
+      >
+        <FiltersIcon />
+      </button>
+
+      <div
+        className={`mobile-filters-overlay ${sidebarOpen ? 'is-open' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+      />
 
       {detailItem && (
         <div
