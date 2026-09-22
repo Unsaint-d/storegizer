@@ -84,19 +84,22 @@ function locationPath(item: CatalogItem): string {
 //
 // Real (if simple) matching rather than a plain .includes(): exact ->
 // prefix -> substring -> ordered-subsequence fuzzy, each tier scored so
-// results can be ranked instead of just included/excluded. `#tags:` and
-// `#cat`/`#categ`/`#category` restrict which field is searched; anything
-// else searches name/category/location/tags/barcode together.
+// results can be ranked instead of just included/excluded. `#tags:`,
+// `#cat`/`#categ`/`#category` and `#barcode`/`#bc` restrict which field is
+// searched; anything else searches name/category/location/tags/barcode
+// together.
 
-type SearchField = 'all' | 'tags' | 'category'
+type SearchField = 'all' | 'tags' | 'category' | 'barcode'
 
 function parseSearch(raw: string): { field: SearchField; text: string } {
   const trimmed = raw.trim()
-  const prefixMatch = trimmed.match(/^#(tags?|category|categ|cat)\b:?\s*/i)
+  const prefixMatch = trimmed.match(/^#(tags?|category|categ|cat|barcode|bc)\b:?\s*/i)
   if (!prefixMatch) return { field: 'all', text: trimmed }
   const word = prefixMatch[1].toLowerCase()
-  const field: SearchField = word.startsWith('tag') ? 'tags' : 'category'
-  return { field, text: trimmed.slice(prefixMatch[0].length).trim() }
+  const text = trimmed.slice(prefixMatch[0].length).trim()
+  if (word.startsWith('tag')) return { field: 'tags', text }
+  if (word === 'bc' || word === 'barcode') return { field: 'barcode', text }
+  return { field: 'category', text }
 }
 
 // -1 means "no match". Otherwise higher is better: exact match beats a
@@ -142,6 +145,9 @@ function scoreItem(item: CatalogItem, field: SearchField, text: string): number 
   }
   if (field === 'category') {
     return fuzzyScore(text, item.category)
+  }
+  if (field === 'barcode') {
+    return fuzzyScore(text, item.barcode)
   }
   const candidates = [
     boost(fuzzyScore(text, item.name), 300),
@@ -209,6 +215,54 @@ function CollapseIcon({ open }: { open: boolean }) {
 function ItemIcon({ icon }: { icon: CatalogItem['icon'] }) {
   const Icon = ITEM_ICONS[icon]
   return <Icon />
+}
+
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="7.5" r="0.75" fill="currentColor" stroke="none" />
+      <path d="M12 11v6" />
+    </svg>
+  )
+}
+
+// Row card for the list view: photo/icon slot, title + location, a
+// barcode/qty/top-tags meta line below a divider, and an info button --
+// matches the row layout provided as a reference.
+function ItemListRow({ item }: { item: CatalogItem }) {
+  const topTags = item.tags.slice(0, 3).join(', ')
+  return (
+    <article className="item-row">
+      <div className="item-row-media">
+        <ItemIcon icon={item.icon} />
+      </div>
+      <div className="item-row-body">
+        <div className="item-row-heading">
+          <h3>{item.name}</h3>
+          <p className="item-location">{locationPath(item)}</p>
+        </div>
+        <div className="item-row-meta">
+          <code className="item-barcode">{item.barcode}</code>
+          <span className="item-row-meta-sep" aria-hidden="true">
+            |
+          </span>
+          <span className="item-qty">×{item.qty}</span>
+          {topTags && (
+            <>
+              <span className="item-row-meta-sep" aria-hidden="true">
+                |
+              </span>
+              <span className="item-row-tags">{topTags}</span>
+            </>
+          )}
+        </div>
+      </div>
+      <button type="button" className="item-row-info" aria-label={`Подробнее: ${item.name}`}>
+        <InfoIcon />
+      </button>
+    </article>
+  )
 }
 
 // Shared "large card" template: used both for the catalog's large-card
@@ -436,6 +490,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                     <li>
                       <code>#cat: значение</code> — искать только по категории
                     </li>
+                    <li>
+                      <code>#barcode: значение</code> — искать только по штрихкоду
+                    </li>
                   </ul>
                 </div>
               ) : bestMatch ? (
@@ -578,10 +635,10 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
           ) : (
             <div className={`catalog-items view-${view}`}>
-              {filtered.map((item) =>
-                view === 'large' ? (
-                  <ItemLargeCard key={item.id} item={item} />
-                ) : (
+              {filtered.map((item) => {
+                if (view === 'large') return <ItemLargeCard key={item.id} item={item} />
+                if (view === 'list') return <ItemListRow key={item.id} item={item} />
+                return (
                   <article key={item.id} className="item-card">
                     <div className="item-icon">
                       <ItemIcon icon={item.icon} />
@@ -593,8 +650,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                     </div>
                     <span className="item-qty">×{item.qty}</span>
                   </article>
-                ),
-              )}
+                )
+              })}
             </div>
           )}
         </main>
