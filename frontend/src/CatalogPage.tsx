@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
 
@@ -6,15 +6,15 @@ type Theme = 'light' | 'dark'
 
 // Draft mock -- there is no /api/items-with-filters backend yet, so this
 // page works entirely off a hardcoded list to give a sense of the catalog
-// screen's shape (sidebar sort/category/filter, view modes, item cards)
-// before any real data layer exists. Layout follows the wireframe: top bar
-// (menu, logo, search) + left sidebar (sort/categories/filters, view
-// switcher) + main item grid.
+// screen's shape (sidebar sort/category/filter, view modes, item cards,
+// search) before any real data layer exists. Layout follows the wireframe:
+// top bar (menu, logo, search) + left sidebar (sort/categories/filters,
+// view switcher) + main item grid.
 
 type Category = 'Кухня' | 'Кладовая' | 'Гараж' | 'Ванная' | 'Разное'
 type SortKey = 'name' | 'qty' | 'location'
 type FilterKey = 'all' | 'low' | 'high'
-type ViewMode = 'grid' | 'list' | 'compact'
+type ViewMode = 'grid' | 'list' | 'large'
 
 type CatalogItem = {
   id: number
@@ -23,6 +23,7 @@ type CatalogItem = {
   location: string
   qty: number
   barcode: string
+  tags: string[]
   icon: keyof typeof ITEM_ICONS
 }
 
@@ -48,19 +49,86 @@ const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
 ]
 
 const ITEMS: CatalogItem[] = [
-  { id: 1, name: 'Консервированные томаты', category: 'Кухня', location: 'Кухонный шкаф, полка 2', qty: 6, barcode: '4607123456781', icon: 'jar' },
-  { id: 2, name: 'Туалетная бумага', category: 'Ванная', location: 'Шкаф под раковиной', qty: 12, barcode: '4607123456798', icon: 'box' },
-  { id: 3, name: 'Аптечка первой помощи', category: 'Разное', location: 'Прихожая, верхняя полка', qty: 1, barcode: '4607123456804', icon: 'box' },
-  { id: 4, name: 'Зимняя резина, комплект', category: 'Гараж', location: 'Стеллаж A', qty: 4, barcode: '4607123456811', icon: 'tag' },
-  { id: 5, name: 'Крупа гречневая', category: 'Кухня', location: 'Кладовая, полка 1', qty: 3, barcode: '4607123456828', icon: 'jar' },
-  { id: 6, name: 'Лампочки LED E27', category: 'Разное', location: 'Кладовая, ящик 3', qty: 8, barcode: '4607123456835', icon: 'box' },
-  { id: 7, name: 'Моторное масло 5W-30', category: 'Гараж', location: 'Стеллаж B', qty: 2, barcode: '4607123456842', icon: 'jar' },
-  { id: 8, name: 'Стиральный порошок', category: 'Ванная', location: 'Балкон, шкаф', qty: 1, barcode: '4607123456859', icon: 'box' },
-  { id: 9, name: 'Батарейки АА', category: 'Разное', location: 'Кухня, ящик стола', qty: 16, barcode: '4607123456866', icon: 'tag' },
-  { id: 10, name: 'Консервы тунец', category: 'Кухня', location: 'Кладовая, полка 2', qty: 5, barcode: '4607123456873', icon: 'jar' },
-  { id: 11, name: 'Автомобильные щётки', category: 'Гараж', location: 'Стеллаж A', qty: 2, barcode: '4607123456880', icon: 'tag' },
-  { id: 12, name: 'Полотенца банные', category: 'Ванная', location: 'Шкаф, полка 1', qty: 4, barcode: '4607123456897', icon: 'box' },
+  { id: 1, name: 'Консервированные томаты', category: 'Кухня', location: 'Кухонный шкаф, полка 2', qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar' },
+  { id: 2, name: 'Туалетная бумага', category: 'Ванная', location: 'Шкаф под раковиной', qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box' },
+  { id: 3, name: 'Аптечка первой помощи', category: 'Разное', location: 'Прихожая, верхняя полка', qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box' },
+  { id: 4, name: 'Зимняя резина, комплект', category: 'Гараж', location: 'Стеллаж A', qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag' },
+  { id: 5, name: 'Крупа гречневая', category: 'Кухня', location: 'Кладовая, полка 1', qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar' },
+  { id: 6, name: 'Лампочки LED E27', category: 'Разное', location: 'Кладовая, ящик 3', qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box' },
+  { id: 7, name: 'Моторное масло 5W-30', category: 'Гараж', location: 'Стеллаж B', qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar' },
+  { id: 8, name: 'Стиральный порошок', category: 'Ванная', location: 'Балкон, шкаф', qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box' },
+  { id: 9, name: 'Батарейки АА', category: 'Разное', location: 'Кухня, ящик стола', qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag' },
+  { id: 10, name: 'Консервы тунец', category: 'Кухня', location: 'Кладовая, полка 2', qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar' },
+  { id: 11, name: 'Автомобильные щётки', category: 'Гараж', location: 'Стеллаж A', qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag' },
+  { id: 12, name: 'Полотенца банные', category: 'Ванная', location: 'Шкаф, полка 1', qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box' },
 ]
+
+// ---------- search: prefix parsing + fuzzy matching ----------
+//
+// Real (if simple) matching rather than a plain .includes(): exact ->
+// prefix -> substring -> ordered-subsequence fuzzy, each tier scored so
+// results can be ranked instead of just included/excluded. `#tags:` and
+// `#cat`/`#categ`/`#category` restrict which field is searched; anything
+// else searches name/category/location/tags/barcode together.
+
+type SearchField = 'all' | 'tags' | 'category'
+
+function parseSearch(raw: string): { field: SearchField; text: string } {
+  const trimmed = raw.trim()
+  const prefixMatch = trimmed.match(/^#(tags?|category|categ|cat)\b:?\s*/i)
+  if (!prefixMatch) return { field: 'all', text: trimmed }
+  const word = prefixMatch[1].toLowerCase()
+  const field: SearchField = word.startsWith('tag') ? 'tags' : 'category'
+  return { field, text: trimmed.slice(prefixMatch[0].length).trim() }
+}
+
+// -1 means "no match". Otherwise higher is better: exact match beats a
+// prefix match, beats a substring match, beats an ordered-subsequence
+// fuzzy match (favoring runs of consecutive characters over scattered
+// ones, like most fuzzy-finders).
+function fuzzyScore(query: string, target: string): number {
+  const q = query.toLowerCase()
+  const t = target.toLowerCase()
+  if (!q) return 0
+  if (t === q) return 1000
+  if (t.startsWith(q)) return 800 - (t.length - q.length)
+  const idx = t.indexOf(q)
+  if (idx !== -1) return 600 - idx
+
+  let qi = 0
+  let score = 0
+  let lastMatch = -1
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] === q[qi]) {
+      score += lastMatch === ti - 1 ? 5 : 2
+      lastMatch = ti
+      qi++
+    }
+  }
+  return qi === q.length ? score : -1
+}
+
+function boost(score: number, amount: number): number {
+  return score === -1 ? -1 : score + amount
+}
+
+function scoreItem(item: CatalogItem, field: SearchField, text: string): number {
+  if (!text) return 0
+  if (field === 'tags') {
+    return item.tags.reduce((best, tag) => Math.max(best, fuzzyScore(text, tag)), -1)
+  }
+  if (field === 'category') {
+    return fuzzyScore(text, item.category)
+  }
+  const candidates = [
+    boost(fuzzyScore(text, item.name), 300),
+    item.barcode.includes(text) ? 250 : -1,
+    fuzzyScore(text, item.category),
+    boost(fuzzyScore(text, item.location), -50),
+    ...item.tags.map((tag) => fuzzyScore(text, tag)),
+  ]
+  return Math.max(...candidates)
+}
 
 function MenuIcon() {
   return (
@@ -98,11 +166,11 @@ function GridViewIcon() {
   )
 }
 
-function CompactViewIcon() {
+function LargeViewIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="6" rx="1.2" />
-      <rect x="3" y="14" width="18" height="6" rx="1.2" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2.5" />
+      <path d="M3 14h18" />
     </svg>
   )
 }
@@ -112,6 +180,41 @@ function CollapseIcon({ open }: { open: boolean }) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {open ? <path d="M15 6l-6 6 6 6" /> : <path d="M9 6l6 6-6 6" />}
     </svg>
+  )
+}
+
+function ItemIcon({ icon }: { icon: CatalogItem['icon'] }) {
+  const Icon = ITEM_ICONS[icon]
+  return <Icon />
+}
+
+// Shared "large card" template: used both for the catalog's large-card
+// view mode and the search dropdown's best-match slot, per the request
+// that they follow the same layout (its real visual design comes later --
+// this is just the informative shell for now).
+function ItemLargeCard({ item }: { item: CatalogItem }) {
+  return (
+    <article className="item-card-large">
+      <div className="item-card-large-media">
+        <ItemIcon icon={item.icon} />
+      </div>
+      <div className="item-card-large-body">
+        <div className="item-card-large-heading">
+          <h3>{item.name}</h3>
+          <span className="item-qty">×{item.qty}</span>
+        </div>
+        <p className="item-location">{item.location}</p>
+        <div className="item-card-large-meta">
+          <span className="item-category-pill">{item.category}</span>
+          {item.tags.map((tag) => (
+            <span key={tag} className="item-tag-pill">
+              {tag}
+            </span>
+          ))}
+        </div>
+        <code className="item-barcode">{item.barcode}</code>
+      </div>
+    </article>
   )
 }
 
@@ -147,26 +250,65 @@ type CatalogPageProps = {
 
 export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) {
   const [query, setQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sort, setSort] = useState<SortKey>('name')
   const [category, setCategory] = useState<Category | 'Все'>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
   const [view, setView] = useState<ViewMode>('grid')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  const { field: searchField, text: searchText } = useMemo(() => parseSearch(query), [query])
+  const searchActive = searchFocused
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return ITEMS.filter((item) => {
-      const matchesQuery = !q || item.name.toLowerCase().includes(q) || item.barcode.includes(q)
-      const matchesCategory = category === 'Все' || item.category === category
-      const matchesStock =
-        stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= 2 : item.qty > 5)
-      return matchesQuery && matchesCategory && matchesStock
-    }).sort((a, b) => {
-      if (sort === 'qty') return b.qty - a.qty
-      if (sort === 'location') return a.location.localeCompare(b.location, 'ru')
-      return a.name.localeCompare(b.name, 'ru')
-    })
-  }, [query, category, stockFilter, sort])
+    return ITEMS.map((item) => ({ item, score: scoreItem(item, searchField, searchText) }))
+      .filter(({ score, item }) => {
+        if (score <= -1) return false
+        const matchesCategory = category === 'Все' || item.category === category
+        const matchesStock =
+          stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= 2 : item.qty > 5)
+        return matchesCategory && matchesStock
+      })
+      .sort((a, b) => {
+        if (searchText && b.score !== a.score) return b.score - a.score
+        if (sort === 'qty') return b.item.qty - a.item.qty
+        if (sort === 'location') return a.item.location.localeCompare(b.item.location, 'ru')
+        return a.item.name.localeCompare(b.item.name, 'ru')
+      })
+      .map(({ item }) => item)
+  }, [searchField, searchText, category, stockFilter, sort])
+
+  // Independent of the sidebar's category/stock filters on purpose -- a
+  // quick global search shouldn't be silently narrowed by whatever the
+  // filters happen to be set to right now.
+  const searchResults = useMemo(() => {
+    if (!searchText) return []
+    return ITEMS.map((item) => ({ item, score: scoreItem(item, searchField, searchText) }))
+      .filter(({ score }) => score > -1)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+  }, [searchField, searchText])
+
+  const bestMatch = searchResults[0]?.item
+  const restResults = searchResults.slice(1)
+
+  function closeSearch() {
+    setSearchFocused(false)
+    searchInputRef.current?.blur()
+  }
+
+  function handleSearchWrapBlur(e: FocusEvent<HTMLDivElement>) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setSearchFocused(false)
+    }
+  }
+
+  function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape' || e.key === 'Enter') {
+      closeSearch()
+    }
+  }
 
   return (
     <div className="catalog-page">
@@ -189,17 +331,62 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
         </div>
 
         <div className="catalog-topbar-right">
-          <label className="catalog-search">
-            <span className="catalog-search-icon">
-              <SearchIcon />
-            </span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти..."
-              type="search"
-            />
-          </label>
+          <div className="catalog-search-wrap" onBlur={handleSearchWrapBlur}>
+            <label className="catalog-search">
+              <span className="catalog-search-icon">
+                <SearchIcon />
+              </span>
+              <input
+                ref={searchInputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Найти... (например, #tags: гигиена)"
+                type="search"
+              />
+            </label>
+
+            <div className={`search-dropdown ${searchActive ? 'is-open' : ''}`}>
+              {!searchText ? (
+                <div className="search-hint">
+                  <p>Начните вводить запрос — поиск идёт по названию, категории, месту и тегам.</p>
+                  <ul>
+                    <li>
+                      <code>#tags: значение</code> — искать только по тегам
+                    </li>
+                    <li>
+                      <code>#cat: значение</code> — искать только по категории
+                    </li>
+                  </ul>
+                </div>
+              ) : bestMatch ? (
+                <>
+                  <div className="search-section-label">Лучшее совпадение</div>
+                  <ItemLargeCard item={bestMatch} />
+                  {restResults.length > 0 && (
+                    <>
+                      <div className="search-section-label">Ещё найдено</div>
+                      <ul className="search-result-list">
+                        {restResults.map(({ item }) => (
+                          <li key={item.id} className="search-result-row">
+                            <span className="search-result-icon">
+                              <ItemIcon icon={item.icon} />
+                            </span>
+                            <span className="search-result-name">{item.name}</span>
+                            <span className="search-result-meta">{item.category}</span>
+                            <span className="item-qty">×{item.qty}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </>
+              ) : (
+                <p className="search-empty">Совпадений не найдено.</p>
+              )}
+            </div>
+          </div>
 
           <button
             type="button"
@@ -211,6 +398,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
           </button>
         </div>
       </header>
+
+      <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
 
       <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
         <button
@@ -271,12 +460,12 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               </button>
               <button
                 type="button"
-                className={view === 'compact' ? 'active' : ''}
-                aria-pressed={view === 'compact'}
-                aria-label="Компактный список"
-                onClick={() => setView('compact')}
+                className={view === 'large' ? 'active' : ''}
+                aria-pressed={view === 'large'}
+                aria-label="Крупные карточки"
+                onClick={() => setView('large')}
               >
-                <CompactViewIcon />
+                <LargeViewIcon />
               </button>
             </div>
           </div>
@@ -291,12 +480,13 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
           ) : (
             <div className={`catalog-items view-${view}`}>
-              {filtered.map((item) => {
-                const Icon = ITEM_ICONS[item.icon]
-                return (
+              {filtered.map((item) =>
+                view === 'large' ? (
+                  <ItemLargeCard key={item.id} item={item} />
+                ) : (
                   <article key={item.id} className="item-card">
                     <div className="item-icon">
-                      <Icon />
+                      <ItemIcon icon={item.icon} />
                     </div>
                     <div className="item-body">
                       <h3>{item.name}</h3>
@@ -305,8 +495,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                     </div>
                     <span className="item-qty">×{item.qty}</span>
                   </article>
-                )
-              })}
+                ),
+              )}
             </div>
           )}
         </main>
