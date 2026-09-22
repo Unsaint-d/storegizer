@@ -272,7 +272,10 @@
 .sidebar-collapse-btn {
   position: absolute;
   top: 50%;
-  left: -13px;
+  /* Centers the button ON the sidebar's divider line, not on
+   * .catalog-main's own edge: the divider sits a full grid `gap` (1rem)
+   * to the left of that edge, plus half the button's own width. */
+  left: calc(-1rem - 13px);
   transform: translateY(-50%);
   z-index: 2;
   width: 26px;
