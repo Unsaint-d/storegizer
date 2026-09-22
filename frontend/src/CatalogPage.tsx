@@ -200,54 +200,61 @@ export default function CatalogPage() {
         </button>
 
         <aside className="catalog-sidebar">
-          <div className="sidebar-section">
-            <h2>Сортировка</h2>
-            <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
-          </div>
+          {/* Fixed-width inner box -- the outer <aside> is what actually
+           * animates (width on desktop, height on mobile) and clips this
+           * with overflow:hidden, so the panel is revealed/hidden like a
+           * wipe instead of its own contents (radio labels etc.) visibly
+           * reflowing to a narrower width mid-transition. */}
+          <div className="catalog-sidebar-inner">
+            <div className="sidebar-section">
+              <h2>Сортировка</h2>
+              <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
+            </div>
 
-          <div className="sidebar-section">
-            <h2>Категории</h2>
-            <RadioGroup
-              name="category"
-              options={[{ key: 'Все' as const, label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
-              value={category}
-              onChange={setCategory}
-            />
-          </div>
+            <div className="sidebar-section">
+              <h2>Категории</h2>
+              <RadioGroup
+                name="category"
+                options={[{ key: 'Все' as const, label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
+                value={category}
+                onChange={setCategory}
+              />
+            </div>
 
-          <div className="sidebar-section">
-            <h2>Фильтры</h2>
-            <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
-          </div>
+            <div className="sidebar-section">
+              <h2>Фильтры</h2>
+              <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
+            </div>
 
-          <div className="sidebar-view-switch" role="radiogroup" aria-label="Вид отображения">
-            <button
-              type="button"
-              className={view === 'list' ? 'active' : ''}
-              aria-pressed={view === 'list'}
-              aria-label="Список"
-              onClick={() => setView('list')}
-            >
-              <ListViewIcon />
-            </button>
-            <button
-              type="button"
-              className={view === 'grid' ? 'active' : ''}
-              aria-pressed={view === 'grid'}
-              aria-label="Сетка"
-              onClick={() => setView('grid')}
-            >
-              <GridViewIcon />
-            </button>
-            <button
-              type="button"
-              className={view === 'compact' ? 'active' : ''}
-              aria-pressed={view === 'compact'}
-              aria-label="Компактный список"
-              onClick={() => setView('compact')}
-            >
-              <CompactViewIcon />
-            </button>
+            <div className="sidebar-view-switch" role="radiogroup" aria-label="Вид отображения">
+              <button
+                type="button"
+                className={view === 'list' ? 'active' : ''}
+                aria-pressed={view === 'list'}
+                aria-label="Список"
+                onClick={() => setView('list')}
+              >
+                <ListViewIcon />
+              </button>
+              <button
+                type="button"
+                className={view === 'grid' ? 'active' : ''}
+                aria-pressed={view === 'grid'}
+                aria-label="Сетка"
+                onClick={() => setView('grid')}
+              >
+                <GridViewIcon />
+              </button>
+              <button
+                type="button"
+                className={view === 'compact' ? 'active' : ''}
+                aria-pressed={view === 'compact'}
+                aria-label="Компактный список"
+                onClick={() => setView('compact')}
+              >
+                <CompactViewIcon />
+              </button>
+            </div>
           </div>
         </aside>
 
