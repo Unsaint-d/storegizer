@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { useMemo, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
 
@@ -10,8 +10,17 @@ type Theme = 'light' | 'dark'
 // search) before any real data layer exists. Layout follows the wireframe:
 // top bar (menu, logo, search) + left sidebar (sort/categories/filters,
 // view switcher) + main item grid.
+//
+// Category and location are deliberately separate, per the data model in
+// docs/scanning-grammar.md: category classifies WHAT a thing is (its own
+// hierarchy there, e.g. "Крепёж -> Винт -> М2"), independent of WHERE it
+// physically lives. Bins don't have a category at all there -- location is
+// a property of the bin (and, here, the item filling it), never the item's
+// classification. Location is modelled the same shape as category's own
+// path -- an ordered array of segments of any depth ("Ванная" alone, or
+// "Ванная:Левый шкаф:Нижняя дверца:Верхняя полка") -- joined with ":" to
+// match the format the room path was requested in.
 
-type Category = 'Кухня' | 'Кладовая' | 'Гараж' | 'Ванная' | 'Разное'
 type SortKey = 'name' | 'qty' | 'location'
 type FilterKey = 'all' | 'low' | 'high'
 type ViewMode = 'grid' | 'list' | 'large'
@@ -19,8 +28,8 @@ type ViewMode = 'grid' | 'list' | 'large'
 type CatalogItem = {
   id: number
   name: string
-  category: Category
-  location: string
+  category: string
+  location: string[]
   qty: number
   barcode: string
   tags: string[]
@@ -34,7 +43,11 @@ const ITEM_ICONS = {
   barcode: BarcodeIcon,
 }
 
-const CATEGORIES: Category[] = ['Кухня', 'Кладовая', 'Гараж', 'Ванная', 'Разное']
+// Seed list only -- categories can be created freely from the sidebar (see
+// the add-category form below), same spirit as the admin-panel category
+// creation described in docs/scanning-grammar.md (just without the
+// session/rollback machinery, since this page has no backend yet).
+const DEFAULT_CATEGORIES = ['Лекарства', 'Пайка', 'Монтажное', 'Дроновое', 'Еда', 'Гигиена', 'Авто', 'Разное']
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'По названию' },
@@ -49,19 +62,23 @@ const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
 ]
 
 const ITEMS: CatalogItem[] = [
-  { id: 1, name: 'Консервированные томаты', category: 'Кухня', location: 'Кухонный шкаф, полка 2', qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar' },
-  { id: 2, name: 'Туалетная бумага', category: 'Ванная', location: 'Шкаф под раковиной', qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box' },
-  { id: 3, name: 'Аптечка первой помощи', category: 'Разное', location: 'Прихожая, верхняя полка', qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box' },
-  { id: 4, name: 'Зимняя резина, комплект', category: 'Гараж', location: 'Стеллаж A', qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag' },
-  { id: 5, name: 'Крупа гречневая', category: 'Кухня', location: 'Кладовая, полка 1', qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar' },
-  { id: 6, name: 'Лампочки LED E27', category: 'Разное', location: 'Кладовая, ящик 3', qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box' },
-  { id: 7, name: 'Моторное масло 5W-30', category: 'Гараж', location: 'Стеллаж B', qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar' },
-  { id: 8, name: 'Стиральный порошок', category: 'Ванная', location: 'Балкон, шкаф', qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box' },
-  { id: 9, name: 'Батарейки АА', category: 'Разное', location: 'Кухня, ящик стола', qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag' },
-  { id: 10, name: 'Консервы тунец', category: 'Кухня', location: 'Кладовая, полка 2', qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar' },
-  { id: 11, name: 'Автомобильные щётки', category: 'Гараж', location: 'Стеллаж A', qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag' },
-  { id: 12, name: 'Полотенца банные', category: 'Ванная', location: 'Шкаф, полка 1', qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box' },
+  { id: 1, name: 'Консервированные томаты', category: 'Еда', location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar' },
+  { id: 2, name: 'Туалетная бумага', category: 'Гигиена', location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box' },
+  { id: 3, name: 'Аптечка первой помощи', category: 'Лекарства', location: ['Прихожая', 'Верхняя полка'], qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box' },
+  { id: 4, name: 'Зимняя резина, комплект', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag' },
+  { id: 5, name: 'Крупа гречневая', category: 'Еда', location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar' },
+  { id: 6, name: 'Лампочки LED E27', category: 'Монтажное', location: ['Кладовая', 'Ящик 3'], qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box' },
+  { id: 7, name: 'Моторное масло 5W-30', category: 'Авто', location: ['Гараж', 'Стеллаж B'], qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar' },
+  { id: 8, name: 'Стиральный порошок', category: 'Гигиена', location: ['Балкон', 'Шкаф'], qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box' },
+  { id: 9, name: 'Батарейки АА', category: 'Дроновое', location: ['Кухня', 'Ящик стола'], qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag' },
+  { id: 10, name: 'Консервы тунец', category: 'Еда', location: ['Кладовая', 'Полка 2'], qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar' },
+  { id: 11, name: 'Автомобильные щётки', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag' },
+  { id: 12, name: 'Полотенца банные', category: 'Гигиена', location: ['Ванная', 'Верхняя полка'], qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box' },
 ]
+
+function locationPath(item: CatalogItem): string {
+  return item.location.join(':')
+}
 
 // ---------- search: prefix parsing + fuzzy matching ----------
 //
@@ -85,7 +102,12 @@ function parseSearch(raw: string): { field: SearchField; text: string } {
 // -1 means "no match". Otherwise higher is better: exact match beats a
 // prefix match, beats a substring match, beats an ordered-subsequence
 // fuzzy match (favoring runs of consecutive characters over scattered
-// ones, like most fuzzy-finders).
+// ones, like most fuzzy-finders). The scattered-subsequence tier only
+// kicks in for queries of 4+ chars -- below that, almost any short string
+// is a "subsequence" of almost any long one (e.g. "апт" is technically
+// found, wildly scattered, inside "...резинА, комПлекТ"), which is noise
+// rather than a real abbreviation match. Short queries fall back to just
+// substring matching, which is exact enough to be trustworthy on its own.
 function fuzzyScore(query: string, target: string): number {
   const q = query.toLowerCase()
   const t = target.toLowerCase()
@@ -94,6 +116,7 @@ function fuzzyScore(query: string, target: string): number {
   if (t.startsWith(q)) return 800 - (t.length - q.length)
   const idx = t.indexOf(q)
   if (idx !== -1) return 600 - idx
+  if (q.length < 4) return -1
 
   let qi = 0
   let score = 0
@@ -124,7 +147,7 @@ function scoreItem(item: CatalogItem, field: SearchField, text: string): number 
     boost(fuzzyScore(text, item.name), 300),
     item.barcode.includes(text) ? 250 : -1,
     fuzzyScore(text, item.category),
-    boost(fuzzyScore(text, item.location), -50),
+    boost(fuzzyScore(text, locationPath(item)), -50),
     ...item.tags.map((tag) => fuzzyScore(text, tag)),
   ]
   return Math.max(...candidates)
@@ -203,7 +226,7 @@ function ItemLargeCard({ item }: { item: CatalogItem }) {
           <h3>{item.name}</h3>
           <span className="item-qty">×{item.qty}</span>
         </div>
-        <p className="item-location">{item.location}</p>
+        <p className="item-location">{locationPath(item)}</p>
         <div className="item-card-large-meta">
           <span className="item-category-pill">{item.category}</span>
           {item.tags.map((tag) => (
@@ -250,19 +273,33 @@ type CatalogPageProps = {
 
 export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) {
   const [query, setQuery] = useState('')
+  // What the item grid actually filters/sorts by -- only replaced on
+  // Enter or picking a dropdown result (see commitSearch), so typing
+  // alone only drives the live preview dropdown, not the grid underneath.
+  const [appliedQuery, setAppliedQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sort, setSort] = useState<SortKey>('name')
-  const [category, setCategory] = useState<Category | 'Все'>('Все')
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
+  const [newCategory, setNewCategory] = useState('')
+  const [category, setCategory] = useState<string>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
   const [view, setView] = useState<ViewMode>('grid')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  // Both cancelSearch and commitSearch below blur the input programmatically
+  // once they've already decided what `query` should end up as -- without
+  // this, the resulting blur event still reaches handleSearchWrapBlur,
+  // which would try to revert `query` a second time using its OWN (by then
+  // stale) closure over `appliedQuery` from before this render's update,
+  // clobbering a just-applied commit back to the previous search.
+  const suppressBlurRevert = useRef(false)
 
   const { field: searchField, text: searchText } = useMemo(() => parseSearch(query), [query])
+  const { field: appliedField, text: appliedText } = useMemo(() => parseSearch(appliedQuery), [appliedQuery])
   const searchActive = searchFocused
 
   const filtered = useMemo(() => {
-    return ITEMS.map((item) => ({ item, score: scoreItem(item, searchField, searchText) }))
+    return ITEMS.map((item) => ({ item, score: scoreItem(item, appliedField, appliedText) }))
       .filter(({ score, item }) => {
         if (score <= -1) return false
         const matchesCategory = category === 'Все' || item.category === category
@@ -271,17 +308,18 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
         return matchesCategory && matchesStock
       })
       .sort((a, b) => {
-        if (searchText && b.score !== a.score) return b.score - a.score
+        if (appliedText && b.score !== a.score) return b.score - a.score
         if (sort === 'qty') return b.item.qty - a.item.qty
-        if (sort === 'location') return a.item.location.localeCompare(b.item.location, 'ru')
+        if (sort === 'location') return locationPath(a.item).localeCompare(locationPath(b.item), 'ru')
         return a.item.name.localeCompare(b.item.name, 'ru')
       })
       .map(({ item }) => item)
-  }, [searchField, searchText, category, stockFilter, sort])
+  }, [appliedField, appliedText, category, stockFilter, sort])
 
   // Independent of the sidebar's category/stock filters on purpose -- a
   // quick global search shouldn't be silently narrowed by whatever the
-  // filters happen to be set to right now.
+  // filters happen to be set to right now. Driven by the live (not yet
+  // applied) query, since this dropdown IS the live preview.
   const searchResults = useMemo(() => {
     if (!searchText) return []
     return ITEMS.map((item) => ({ item, score: scoreItem(item, searchField, searchText) }))
@@ -293,32 +331,72 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const bestMatch = searchResults[0]?.item
   const restResults = searchResults.slice(1)
 
-  function closeSearch() {
+  function cancelSearch() {
+    suppressBlurRevert.current = true
+    setQuery(appliedQuery)
+    setSearchFocused(false)
+    searchInputRef.current?.blur()
+  }
+
+  function commitSearch() {
+    suppressBlurRevert.current = true
+    setAppliedQuery(query)
     setSearchFocused(false)
     searchInputRef.current?.blur()
   }
 
   function handleSearchWrapBlur(e: FocusEvent<HTMLDivElement>) {
+    if (suppressBlurRevert.current) {
+      suppressBlurRevert.current = false
+      return
+    }
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setQuery(appliedQuery)
       setSearchFocused(false)
     }
   }
 
   function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Escape' || e.key === 'Enter') {
-      closeSearch()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commitSearch()
+    } else if (e.key === 'Escape') {
+      // type="search" clears itself natively on Escape as the keydown's
+      // default action -- without preventDefault that fires right after
+      // cancelSearch's own setQuery(appliedQuery), clobbering the revert
+      // back to an empty string.
+      e.preventDefault()
+      cancelSearch()
     }
+  }
+
+  function handleResultKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      commitSearch()
+    }
+  }
+
+  function addCategory(e: FormEvent) {
+    e.preventDefault()
+    const name = newCategory.trim()
+    if (!name) return
+    setCategories((prev) => (prev.includes(name) ? prev : [...prev, name]))
+    setCategory(name)
+    setNewCategory('')
   }
 
   return (
     <div className="catalog-page">
       <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
-      <header className="catalog-topbar">
+      <header className={`catalog-topbar ${searchActive ? 'search-active' : ''}`}>
         {/* Fixed-width left zone (menu + brand) so its right edge lands on
          * the same x as .catalog-body's sidebar/main divider below --
          * see .catalog-topbar-left in CatalogPage.css. Purely visual
-         * symmetry, not an actual layout dependency between the two. */}
+         * symmetry, not an actual layout dependency between the two. On
+         * narrow screens this zone (specifically the brand) collapses away
+         * while search is active instead, to give the search field room. */}
         <div className="catalog-topbar-left">
           <button type="button" className="icon-btn menu-btn" aria-label="Меню">
             <MenuIcon />
@@ -332,7 +410,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
 
         <div className="catalog-topbar-right">
           <div className="catalog-search-wrap" onBlur={handleSearchWrapBlur}>
-            <label className="catalog-search">
+            <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
               <span className="catalog-search-icon">
                 <SearchIcon />
               </span>
@@ -350,7 +428,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             <div className={`search-dropdown ${searchActive ? 'is-open' : ''}`}>
               {!searchText ? (
                 <div className="search-hint">
-                  <p>Начните вводить запрос — поиск идёт по названию, категории, месту и тегам.</p>
+                  <p>Начните вводить запрос и нажмите Enter — поиск идёт по названию, категории, месту и тегам.</p>
                   <ul>
                     <li>
                       <code>#tags: значение</code> — искать только по тегам
@@ -363,13 +441,22 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               ) : bestMatch ? (
                 <>
                   <div className="search-section-label">Лучшее совпадение</div>
-                  <ItemLargeCard item={bestMatch} />
+                  <button type="button" className="search-best-match" onClick={commitSearch}>
+                    <ItemLargeCard item={bestMatch} />
+                  </button>
                   {restResults.length > 0 && (
                     <>
                       <div className="search-section-label">Ещё найдено</div>
                       <ul className="search-result-list">
                         {restResults.map(({ item }) => (
-                          <li key={item.id} className="search-result-row">
+                          <li
+                            key={item.id}
+                            className="search-result-row"
+                            role="button"
+                            tabIndex={0}
+                            onClick={commitSearch}
+                            onKeyDown={handleResultKeyDown}
+                          >
                             <span className="search-result-icon">
                               <ItemIcon icon={item.icon} />
                             </span>
@@ -399,7 +486,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
         </div>
       </header>
 
-      <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
+      <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={cancelSearch} />
 
       <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
         <button
@@ -428,10 +515,21 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               <h2>Категории</h2>
               <RadioGroup
                 name="category"
-                options={[{ key: 'Все' as const, label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
+                options={[{ key: 'Все', label: 'Все' }, ...categories.map((c) => ({ key: c, label: c }))]}
                 value={category}
                 onChange={setCategory}
               />
+              <form className="add-category-form" onSubmit={addCategory}>
+                <input
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  placeholder="Новая категория"
+                  aria-label="Название новой категории"
+                />
+                <button type="submit" aria-label="Добавить категорию" disabled={!newCategory.trim()}>
+                  +
+                </button>
+              </form>
             </div>
 
             <div className="sidebar-section">
@@ -490,7 +588,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                     </div>
                     <div className="item-body">
                       <h3>{item.name}</h3>
-                      <p className="item-location">{item.location}</p>
+                      <p className="item-location">{locationPath(item)}</p>
                       <code className="item-barcode">{item.barcode}</code>
                     </div>
                     <span className="item-qty">×{item.qty}</span>

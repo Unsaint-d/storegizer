@@ -37,7 +37,7 @@
   :root {
     --ground: #fbf8f2;
     --surface: #ffffff;
-    --surface-2: #f3ece0;
+    --surface-2: #ece0c7;
     --ink: #2a231b;
     --muted: #6b5f4e;
     --border: #e3d9c7;
@@ -61,7 +61,7 @@
 :root[data-theme='light'] {
   --ground: #fbf8f2;
   --surface: #ffffff;
-  --surface-2: #f3ece0;
+  --surface-2: #ece0c7;
   --ink: #2a231b;
   --muted: #6b5f4e;
   --border: #e3d9c7;
