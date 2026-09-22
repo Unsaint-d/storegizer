@@ -161,28 +161,39 @@
   border-radius: 14px;
   background: var(--surface);
   padding: 0.75rem;
-  transition: background-color 0.3s ease, border-color 0.3s ease, grid-template-columns 0.2s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease,
+    grid-template-columns 0.3s cubic-bezier(0.65, 0, 0.35, 1),
+    gap 0.3s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* Collapsed by the menu button (works at any viewport width, not just
- * narrow ones): the sidebar column disappears entirely and the results
- * panel takes the full width. */
+ * narrow ones): the sidebar track shrinks to nothing and the results
+ * panel takes the full width. Kept as two grid tracks in both states
+ * (220px/0px, never 2-tracks-to-1) so grid-template-columns can actually
+ * interpolate between them -- animating 2 tracks down to 1 just snaps. */
 .catalog-body.sidebar-collapsed {
-  grid-template-columns: 1fr;
+  grid-template-columns: 0px 1fr;
+  gap: 0;
 }
 
 .catalog-body.sidebar-collapsed .catalog-sidebar {
-  display: none;
+  opacity: 0;
+  padding-left: 0;
+  padding-right: 0;
+  pointer-events: none;
 }
 
 .catalog-sidebar {
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
+  min-width: 0;
   padding: 0.25rem 1.1rem 0.25rem 0.25rem;
   border-right: 1px solid var(--border);
-  overflow-y: auto;
-  transition: border-color 0.3s ease;
+  overflow: hidden auto;
+  opacity: 1;
+  transition: border-color 0.3s ease, opacity 0.2s ease,
+    padding 0.3s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 .sidebar-section h2 {
@@ -500,16 +511,31 @@
 @media (max-width: 860px) {
   /* Stacked instead of side-by-side: an open sidebar sits above the
    * results as its own full-width block rather than squeezing into a
-   * fixed 220px column. */
+   * fixed 220px column. Collapsing it here can't reuse the desktop
+   * width-collapse trick (grid-template-columns is a single 1fr track in
+   * this layout, nothing to shrink), so it gets its own max-height
+   * collapse instead -- generous enough to cover the filter panel's real
+   * height, animated together with its padding so it closes flush rather
+   * than leaving a padded sliver. */
   .catalog-body,
   .catalog-body.sidebar-collapsed {
     grid-template-columns: 1fr;
   }
 
   .catalog-sidebar {
+    max-height: 800px;
     border-right: none;
     border-bottom: 1px solid var(--border);
     padding: 0.25rem 0.25rem 1rem;
+    transition: max-height 0.35s cubic-bezier(0.65, 0, 0.35, 1),
+      padding 0.3s cubic-bezier(0.65, 0, 0.35, 1), border-color 0.3s ease, opacity 0.2s ease;
+  }
+
+  .catalog-body.sidebar-collapsed .catalog-sidebar {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-color: transparent;
   }
 
   .catalog-search {

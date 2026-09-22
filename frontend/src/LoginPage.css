@@ -313,6 +313,21 @@ form {
   transition: color 0.3s ease;
 }
 
+.reader-note-in {
+  animation: reader-note-in 0.3s ease both;
+}
+
+@keyframes reader-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ---------- brand panel ---------- */
 
 .brand-panel {
@@ -473,12 +488,25 @@ form {
   animation: overlay-in 0.2s ease both;
 }
 
+.modal-overlay.is-closing {
+  animation: overlay-out 0.2s ease both;
+}
+
 @keyframes overlay-in {
   from {
     opacity: 0;
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -497,6 +525,10 @@ form {
   transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
+.modal.is-closing {
+  animation: modal-out 0.22s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
 @keyframes modal-in {
   from {
     opacity: 0;
@@ -505,6 +537,17 @@ form {
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
   }
 }
 

@@ -9,6 +9,11 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080
 // not the instant anonymous mode is selected.
 const FIELD_COLLAPSE_MS = 350
 
+// Matches the modal-overlay/modal exit animation duration below -- the
+// error modal stays mounted for this long after closing so it can fade
+// and scale out instead of vanishing on the frame the user clicks "Понятно".
+const MODAL_CLOSE_MS = 220
+
 type Mode = 'key' | 'eye'
 
 function KeyIcon() {
@@ -103,6 +108,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [modalClosing, setModalClosing] = useState(false)
   const [readerEntered, setReaderEntered] = useState(false)
   const [eyeModeReady, setEyeModeReady] = useState(false)
 
@@ -115,13 +121,32 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
     return () => clearTimeout(t)
   }, [mode])
 
+  useEffect(() => {
+    if (!modalClosing) return
+    const t = setTimeout(() => {
+      setError(null)
+      setModalClosing(false)
+    }, MODAL_CLOSE_MS)
+    return () => clearTimeout(t)
+  }, [modalClosing])
+
+  function closeErrorModal() {
+    if (error) setModalClosing(true)
+  }
+
+  function showError(message: string) {
+    setModalClosing(false)
+    setError(message)
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    setModalClosing(false)
     setError(null)
 
     if (mode === 'key') {
       if (!login.trim() || !password.trim()) {
-        setError('Введите логин и пароль.')
+        showError('Введите логин и пароль.')
         return
       }
       setSubmitting(true)
@@ -136,7 +161,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
         }
         onAuthenticated?.()
       } catch {
-        setError('Не удалось войти. Проверьте логин и пароль.')
+        showError('Не удалось войти. Проверьте логин и пароль.')
       } finally {
         setSubmitting(false)
       }
@@ -182,7 +207,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
                 aria-pressed={mode === 'key'}
                 onClick={() => {
                   setMode('key')
-                  setError(null)
+                  closeErrorModal()
                   setReaderEntered(false)
                 }}
               >
@@ -194,7 +219,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
                 aria-pressed={mode === 'eye'}
                 onClick={() => {
                   setMode('eye')
-                  setError(null)
+                  closeErrorModal()
                   setReaderEntered(false)
                 }}
               >
@@ -239,7 +264,7 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
           </form>
 
           {readerEntered && (
-            <p className="reader-note">Вы вошли как читатель (демо, каталог ещё не подключён).</p>
+            <p className="reader-note reader-note-in">Вы вошли как читатель (демо, каталог ещё не подключён).</p>
           )}
         </div>
       </div>
@@ -278,11 +303,16 @@ export default function LoginPage({ onAuthenticated }: LoginPageProps) {
       </div>
 
       {error && (
-        <div className="modal-overlay" onClick={() => setError(null)}>
-          <div className="modal" role="alertdialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className={`modal-overlay ${modalClosing ? 'is-closing' : ''}`} onClick={closeErrorModal}>
+          <div
+            className={`modal ${modalClosing ? 'is-closing' : ''}`}
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2>Не получилось</h2>
             <p>{error}</p>
-            <button type="button" onClick={() => setError(null)}>
+            <button type="button" onClick={closeErrorModal}>
               Понятно
             </button>
           </div>
