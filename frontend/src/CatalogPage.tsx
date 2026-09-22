@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
 
@@ -43,11 +43,11 @@ const ITEM_ICONS = {
   barcode: BarcodeIcon,
 }
 
-// Seed list only -- categories can be created freely from the sidebar (see
-// the add-category form below), same spirit as the admin-panel category
-// creation described in docs/scanning-grammar.md (just without the
-// session/rollback machinery, since this page has no backend yet).
-const DEFAULT_CATEGORIES = ['Лекарства', 'Пайка', 'Монтажное', 'Дроновое', 'Еда', 'Гигиена', 'Авто', 'Разное']
+// Per docs/scanning-grammar.md, a category (like a tag) only ever comes
+// into being as part of creating/editing an item -- there's no standalone
+// "manage categories" entry point. This page has no item-creation flow
+// yet, so the list is just a fixed seed for now rather than editable here.
+const CATEGORIES = ['Лекарства', 'Пайка', 'Монтажное', 'Дроновое', 'Еда', 'Гигиена', 'Авто', 'Разное']
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'По названию' },
@@ -227,10 +227,30 @@ function InfoIcon() {
   )
 }
 
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  )
+}
+
+// Periodically swapped in for the search icon (see the interval in
+// CatalogPage) to hint that the field doubles as a command line, not just
+// item search.
+function TerminalIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6l6 6-6 6" />
+      <path d="M17 5l-4 14" />
+    </svg>
+  )
+}
+
 // Row card for the list view: photo/icon slot, title + location, a
 // barcode/qty/top-tags meta line below a divider, and an info button --
 // matches the row layout provided as a reference.
-function ItemListRow({ item }: { item: CatalogItem }) {
+function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: (item: CatalogItem) => void }) {
   const topTags = item.tags.slice(0, 3).join(', ')
   return (
     <article className="item-row">
@@ -258,7 +278,12 @@ function ItemListRow({ item }: { item: CatalogItem }) {
           )}
         </div>
       </div>
-      <button type="button" className="item-row-info" aria-label={`Подробнее: ${item.name}`}>
+      <button
+        type="button"
+        className="item-row-info"
+        aria-label={`Подробнее: ${item.name}`}
+        onClick={() => onOpenDetail(item)}
+      >
         <InfoIcon />
       </button>
     </article>
@@ -325,55 +350,48 @@ type CatalogPageProps = {
   onToggleTheme: () => void
 }
 
+// How long the terminal glyph stays up before reverting, and how often it
+// appears -- see the effect in CatalogPage that drives ICON_MORPH.
+const ICON_MORPH_INTERVAL_MS = 30000
+const ICON_MORPH_HOLD_MS = 1400
+
 export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) {
   const [query, setQuery] = useState('')
-  // What the item grid actually filters/sorts by -- only replaced on
-  // Enter or picking a dropdown result (see commitSearch), so typing
-  // alone only drives the live preview dropdown, not the grid underneath.
-  const [appliedQuery, setAppliedQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sort, setSort] = useState<SortKey>('name')
-  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
-  const [newCategory, setNewCategory] = useState('')
   const [category, setCategory] = useState<string>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
   const [view, setView] = useState<ViewMode>('grid')
+  const [detailItem, setDetailItem] = useState<CatalogItem | null>(null)
+  const [detailClosing, setDetailClosing] = useState(false)
+  const [iconMorphed, setIconMorphed] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  // Both cancelSearch and commitSearch below blur the input programmatically
-  // once they've already decided what `query` should end up as -- without
-  // this, the resulting blur event still reaches handleSearchWrapBlur,
-  // which would try to revert `query` a second time using its OWN (by then
-  // stale) closure over `appliedQuery` from before this render's update,
-  // clobbering a just-applied commit back to the previous search.
-  const suppressBlurRevert = useRef(false)
+  const searchFocusedRef = useRef(searchFocused)
+  searchFocusedRef.current = searchFocused
 
-  const { field: searchField, text: searchText } = useMemo(() => parseSearch(query), [query])
-  const { field: appliedField, text: appliedText } = useMemo(() => parseSearch(appliedQuery), [appliedQuery])
   const searchActive = searchFocused
 
+  // Deliberately NOT connected to the item grid at all -- this is a
+  // standalone quick-find/command-line utility (see the terminal-icon
+  // morph below), not a filter control. Picking a result opens the item's
+  // detail card instead of narrowing the grid underneath, and the grid's
+  // own filtering/sorting only ever reads sort/category/stockFilter.
   const filtered = useMemo(() => {
-    return ITEMS.map((item) => ({ item, score: scoreItem(item, appliedField, appliedText) }))
-      .filter(({ score, item }) => {
-        if (score <= -1) return false
-        const matchesCategory = category === 'Все' || item.category === category
-        const matchesStock =
-          stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= 2 : item.qty > 5)
-        return matchesCategory && matchesStock
-      })
-      .sort((a, b) => {
-        if (appliedText && b.score !== a.score) return b.score - a.score
-        if (sort === 'qty') return b.item.qty - a.item.qty
-        if (sort === 'location') return locationPath(a.item).localeCompare(locationPath(b.item), 'ru')
-        return a.item.name.localeCompare(b.item.name, 'ru')
-      })
-      .map(({ item }) => item)
-  }, [appliedField, appliedText, category, stockFilter, sort])
+    return ITEMS.filter((item) => {
+      const matchesCategory = category === 'Все' || item.category === category
+      const matchesStock =
+        stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= 2 : item.qty > 5)
+      return matchesCategory && matchesStock
+    }).sort((a, b) => {
+      if (sort === 'qty') return b.qty - a.qty
+      if (sort === 'location') return locationPath(a).localeCompare(locationPath(b), 'ru')
+      return a.name.localeCompare(b.name, 'ru')
+    })
+  }, [category, stockFilter, sort])
 
-  // Independent of the sidebar's category/stock filters on purpose -- a
-  // quick global search shouldn't be silently narrowed by whatever the
-  // filters happen to be set to right now. Driven by the live (not yet
-  // applied) query, since this dropdown IS the live preview.
+  const { field: searchField, text: searchText } = useMemo(() => parseSearch(query), [query])
+
   const searchResults = useMemo(() => {
     if (!searchText) return []
     return ITEMS.map((item) => ({ item, score: scoreItem(item, searchField, searchText) }))
@@ -385,27 +403,52 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const bestMatch = searchResults[0]?.item
   const restResults = searchResults.slice(1)
 
-  function cancelSearch() {
-    suppressBlurRevert.current = true
-    setQuery(appliedQuery)
+  // Every 30s, briefly morph the search icon into a ">/" glyph (skipped
+  // while the field is actively focused -- distracting mid-interaction,
+  // and pointless since the user is already looking right at it) to hint
+  // this doubles as a command line, not just item search.
+  useEffect(() => {
+    let revertTimeout: ReturnType<typeof setTimeout> | undefined
+    const interval = setInterval(() => {
+      if (searchFocusedRef.current) return
+      setIconMorphed(true)
+      revertTimeout = setTimeout(() => setIconMorphed(false), ICON_MORPH_HOLD_MS)
+    }, ICON_MORPH_INTERVAL_MS)
+    return () => {
+      clearInterval(interval)
+      if (revertTimeout) clearTimeout(revertTimeout)
+    }
+  }, [])
+
+  function closeSearch() {
     setSearchFocused(false)
     searchInputRef.current?.blur()
   }
 
-  function commitSearch() {
-    suppressBlurRevert.current = true
-    setAppliedQuery(query)
-    setSearchFocused(false)
-    searchInputRef.current?.blur()
+  // Opening a result is the only thing that "selects" a search -- it
+  // shows the item's detail card and resets the command line, same as
+  // running a command clears the prompt.
+  function openDetail(item: CatalogItem) {
+    setDetailItem(item)
+    setQuery('')
+    closeSearch()
   }
+
+  function closeDetail() {
+    setDetailClosing(true)
+  }
+
+  useEffect(() => {
+    if (!detailClosing) return
+    const t = setTimeout(() => {
+      setDetailItem(null)
+      setDetailClosing(false)
+    }, 220)
+    return () => clearTimeout(t)
+  }, [detailClosing])
 
   function handleSearchWrapBlur(e: FocusEvent<HTMLDivElement>) {
-    if (suppressBlurRevert.current) {
-      suppressBlurRevert.current = false
-      return
-    }
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-      setQuery(appliedQuery)
       setSearchFocused(false)
     }
   }
@@ -413,31 +456,18 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault()
-      commitSearch()
+      if (bestMatch) openDetail(bestMatch)
+      else closeSearch()
     } else if (e.key === 'Escape') {
-      // type="search" clears itself natively on Escape as the keydown's
-      // default action -- without preventDefault that fires right after
-      // cancelSearch's own setQuery(appliedQuery), clobbering the revert
-      // back to an empty string.
-      e.preventDefault()
-      cancelSearch()
+      closeSearch()
     }
   }
 
-  function handleResultKeyDown(e: KeyboardEvent<HTMLElement>) {
+  function handleResultKeyDown(e: KeyboardEvent<HTMLElement>, item: CatalogItem) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      commitSearch()
+      openDetail(item)
     }
-  }
-
-  function addCategory(e: FormEvent) {
-    e.preventDefault()
-    const name = newCategory.trim()
-    if (!name) return
-    setCategories((prev) => (prev.includes(name) ? prev : [...prev, name]))
-    setCategory(name)
-    setNewCategory('')
   }
 
   return (
@@ -466,7 +496,12 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
           <div className="catalog-search-wrap" onBlur={handleSearchWrapBlur}>
             <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
               <span className="catalog-search-icon">
-                <SearchIcon />
+                <span className={`search-icon-face ${!iconMorphed ? 'is-visible' : ''}`}>
+                  <SearchIcon />
+                </span>
+                <span className={`search-icon-face ${iconMorphed ? 'is-visible' : ''}`}>
+                  <TerminalIcon />
+                </span>
               </span>
               <input
                 ref={searchInputRef}
@@ -474,7 +509,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onKeyDown={handleSearchKeyDown}
-                placeholder="Найти... (например, #tags: гигиена)"
+                placeholder="Найти или выполнить команду... (например, #tags: гигиена)"
                 type="search"
               />
             </label>
@@ -482,7 +517,10 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             <div className={`search-dropdown ${searchActive ? 'is-open' : ''}`}>
               {!searchText ? (
                 <div className="search-hint">
-                  <p>Начните вводить запрос и нажмите Enter — поиск идёт по названию, категории, месту и тегам.</p>
+                  <p>
+                    Универсальная строка поиска — по названию, категории, месту, тегам и штрихкоду.
+                    Не связана со списком ниже: Enter или клик по результату открывает карточку предмета.
+                  </p>
                   <ul>
                     <li>
                       <code>#tags: значение</code> — искать только по тегам
@@ -498,7 +536,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               ) : bestMatch ? (
                 <>
                   <div className="search-section-label">Лучшее совпадение</div>
-                  <button type="button" className="search-best-match" onClick={commitSearch}>
+                  <button type="button" className="search-best-match" onClick={() => openDetail(bestMatch)}>
                     <ItemLargeCard item={bestMatch} />
                   </button>
                   {restResults.length > 0 && (
@@ -511,8 +549,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                             className="search-result-row"
                             role="button"
                             tabIndex={0}
-                            onClick={commitSearch}
-                            onKeyDown={handleResultKeyDown}
+                            onClick={() => openDetail(item)}
+                            onKeyDown={(e) => handleResultKeyDown(e, item)}
                           >
                             <span className="search-result-icon">
                               <ItemIcon icon={item.icon} />
@@ -543,7 +581,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
         </div>
       </header>
 
-      <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={cancelSearch} />
+      <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
 
       <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
         <button
@@ -572,21 +610,10 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               <h2>Категории</h2>
               <RadioGroup
                 name="category"
-                options={[{ key: 'Все', label: 'Все' }, ...categories.map((c) => ({ key: c, label: c }))]}
+                options={[{ key: 'Все', label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
                 value={category}
                 onChange={setCategory}
               />
-              <form className="add-category-form" onSubmit={addCategory}>
-                <input
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  placeholder="Новая категория"
-                  aria-label="Название новой категории"
-                />
-                <button type="submit" aria-label="Добавить категорию" disabled={!newCategory.trim()}>
-                  +
-                </button>
-              </form>
             </div>
 
             <div className="sidebar-section">
@@ -637,7 +664,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             <div className={`catalog-items view-${view}`}>
               {filtered.map((item) => {
                 if (view === 'large') return <ItemLargeCard key={item.id} item={item} />
-                if (view === 'list') return <ItemListRow key={item.id} item={item} />
+                if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
                 return (
                   <article key={item.id} className="item-card">
                     <div className="item-icon">
@@ -656,6 +683,32 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
           )}
         </main>
       </div>
+
+      {detailItem && (
+        <div
+          className={`item-detail-overlay ${detailClosing ? 'is-closing' : ''}`}
+          onClick={closeDetail}
+        >
+          <div
+            className={`item-detail-modal ${detailClosing ? 'is-closing' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="item-detail-modal-header">
+              <span className="search-section-label">Карточка предмета</span>
+              <button type="button" className="item-detail-close" onClick={closeDetail} aria-label="Закрыть">
+                <CloseIcon />
+              </button>
+            </div>
+            <ItemLargeCard item={detailItem} />
+            <p className="item-detail-note">
+              Плейсхолдер — полноценная карточка предмета (редактирование, история операций и т.д.) будет
+              реализована позже.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

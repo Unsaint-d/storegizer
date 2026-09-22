@@ -204,13 +204,42 @@
 }
 
 .catalog-search-icon {
+  position: relative;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding-right: 0.7rem;
+  width: 16px;
+  height: 16px;
   margin-right: 0.7rem;
+  padding-right: 0.7rem;
   border-right: 1px solid var(--border);
   transition: border-color 0.3s ease;
+}
+
+/* The two icons (search / terminal) stack on top of each other and cross-
+ * fade with a quick spin+blur, driven by CatalogPage's 30s interval --
+ * see .search-icon-face below. */
+.search-icon-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: rotate(-100deg) scale(0.5);
+  filter: blur(5px);
+  transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.65, 0, 0.35, 1), filter 0.35s ease;
+  pointer-events: none;
+}
+
+.search-icon-face.is-visible {
+  opacity: 1;
+  transform: rotate(0) scale(1);
+  filter: blur(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-icon-face {
+    transition: opacity 0.01ms, filter 0.01ms;
+    transform: none;
+  }
 }
 
 .catalog-search svg {
@@ -572,62 +601,6 @@
   margin: 0;
   cursor: pointer;
   flex-shrink: 0;
-}
-
-.add-category-form {
-  display: flex;
-  gap: 0.4rem;
-  margin-top: 0.7rem;
-}
-
-.add-category-form input {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: 12.5px;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--ground);
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--border);
-  transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.15s ease;
-}
-
-.add-category-form input::placeholder {
-  color: var(--muted);
-}
-
-.add-category-form input:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-}
-
-.add-category-form button {
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: none;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color 0.3s ease, color 0.3s ease, filter 0.15s ease;
-}
-
-.add-category-form button:hover {
-  filter: brightness(1.05);
-}
-
-.add-category-form button:disabled {
-  background: var(--surface-2);
-  color: var(--muted);
-  cursor: default;
-  filter: none;
 }
 
 .sidebar-view-switch {
@@ -1082,6 +1055,121 @@
   background: var(--surface);
   color: var(--muted);
   box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* ---------- item detail modal (placeholder) ---------- */
+
+.item-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  animation: item-detail-overlay-in 0.2s ease both;
+}
+
+.item-detail-overlay.is-closing {
+  animation: item-detail-overlay-out 0.2s ease both;
+}
+
+@keyframes item-detail-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes item-detail-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.item-detail-modal {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: item-detail-modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.item-detail-modal.is-closing {
+  animation: item-detail-modal-out 0.22s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+@keyframes item-detail-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes item-detail-modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+}
+
+.item-detail-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.item-detail-close {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.item-detail-close:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.item-detail-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.item-detail-note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  transition: color 0.3s ease;
 }
 
 /* ---------- responsive ---------- */
