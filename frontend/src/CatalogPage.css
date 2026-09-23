@@ -101,7 +101,15 @@
  * file) until focused, at which point it expands to take over the row
  * while the brand -- no longer needed for orientation once search is the
  * focus -- shrinks out of the way. Both driven by the same
- * .search-active class, so they animate together. */
+ * .search-active class, so they animate together.
+ *
+ * Sequenced with the results dropdown rather than simultaneous: opening,
+ * the field widens first (0.3s) and the dropdown only fades in after
+ * (see .search-dropdown.is-open below); closing runs in reverse -- the
+ * dropdown fades out (0.2s) and only then does the field collapse and the
+ * brand return. The delays sit on the destination state's rule, since a
+ * transition always uses the timing declared for the state it's heading
+ * to. */
 @media (max-width: 640px) {
   /* Logo centered in its own right, independent of however wide the menu
    * button or the search+theme cluster happen to be -- so it stays
@@ -120,12 +128,13 @@
     max-width: 170px;
     opacity: 1;
     overflow: hidden;
-    transition: max-width 0.3s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.2s ease;
+    transition: max-width 0.3s cubic-bezier(0.65, 0, 0.35, 1) 0.2s, opacity 0.2s ease 0.2s;
   }
 
   .catalog-topbar.search-active .catalog-brand {
     max-width: 0;
     opacity: 0;
+    transition-delay: 0s;
   }
 
   /* Search + theme sit together in the top-right corner instead of
@@ -140,22 +149,42 @@
     flex: 0 0 auto;
     max-width: 40px;
     overflow: hidden;
-    transition: max-width 0.3s cubic-bezier(0.65, 0, 0.35, 1);
+    transition: max-width 0.3s cubic-bezier(0.65, 0, 0.35, 1) 0.2s;
   }
 
+  /* Exactly the width the wrap ends up at (its row minus the theme button
+   * and the gap before it), not an arbitrary cap like 600px -- max-width
+   * is what animates, so an oversized target made the visible growth
+   * finish well before the 0.3s the dropdown waits for, leaving a dead
+   * pause in between. */
   .catalog-topbar.search-active .catalog-search-wrap {
     flex: 1 1 auto;
-    max-width: 600px;
+    max-width: calc(100% - 40px - 0.75rem);
+    transition-delay: 0s;
   }
 
   /* Collapsed look: reads as a plain icon button matching menu-btn/
    * theme-toggle-btn -- the input and its divider are still there
    * underneath (clipped by the wrap's max-width above), so tapping this
-   * still focuses the real input and triggers the expand. */
+   * still focuses the real input and triggers the expand. The divider
+   * fades out alongside the dropdown, and the spacing snaps only once the
+   * collapse actually starts -- snapping immediately would jump the
+   * input's text sideways while the field is still wide. */
   .catalog-topbar:not(.search-active) .catalog-search-icon {
-    border-right: none;
+    border-right-color: transparent;
     margin-right: 0;
     padding-right: 0;
+    transition: border-color 0.2s ease, margin-right 0s linear 0.2s, padding-right 0s linear 0.2s;
+  }
+
+  /* Squares off the field's bottom corners only once the dropdown is
+   * actually appearing under it, not while the field is still widening. */
+  .catalog-search.is-open {
+    transition: background-color 0.3s ease, box-shadow 0.15s ease, border-radius 0.15s ease 0.3s;
+  }
+
+  .search-dropdown.is-open {
+    transition-delay: 0.3s;
   }
 }
 
