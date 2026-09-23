@@ -916,10 +916,12 @@
   transition: color 0.3s ease;
 }
 
+/* In the card's flex row (not absolutely positioned) so it takes its own
+ * width and the title's ellipsis stops before it instead of running
+ * underneath. Line box matches the h3's (15px x 1.5) so the two sit on
+ * the same line. */
 .view-grid .item-qty {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.8rem;
+  line-height: 22.5px;
 }
 
 /* ---------- list rows ---------- */
