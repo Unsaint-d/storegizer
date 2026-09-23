@@ -233,6 +233,12 @@
 .catalog-search-icon {
   position: relative;
   flex-shrink: 0;
+  /* .catalog-search uses align-items:stretch (so the <input> fills the
+   * full height) -- per the flexbox spec, stretch behaves as flex-start
+   * for any item with a definite cross-size, which this has (16px), so
+   * without this override the icon sat near the top of the field instead
+   * of centered. */
+  align-self: center;
   width: 16px;
   height: 16px;
   margin-right: 0.7rem;
@@ -366,18 +372,19 @@
 }
 
 .search-dropdown {
-  position: absolute;
-  /* Slightly INTO the search field (not flush at 100%) -- .catalog-search
-   * keeps its full focus ring (accent border + soft glow) on every edge
-   * including the bottom even while .is-open, so at a flush 100% that ring
-   * shows as a bold accent line right at the seam. Overlapping by more
-   * than the ring's own inset extent (border + glow, ~4px) lets this
-   * opaque panel paint over it instead of trying to selectively suppress
-   * just one edge of a shadow-based ring. See .catalog-search.is-open for
-   * the matching square-cornered look this lines up against. */
-  top: calc(100% - 5px);
-  left: 0;
-  right: 0;
+  /* Portaled to <body> (see CatalogPage.tsx) -- .catalog-search-wrap's own
+   * z-index:16 didn't actually win against .catalog-body's content despite
+   * the numbers, since every element between the wrap and the page root is
+   * position:relative/static with no z-index of its own and (empirically,
+   * not just per a plain reading of the stacking spec) that let the
+   * sibling .catalog-body's content paint over it anyway. Position/size
+   * are now set inline from a measurement of the wrap, including the
+   * -5px overlap that masks .catalog-search's own focus ring at the seam
+   * (border + soft glow, ~4px) instead of leaving it visible as a bold
+   * line -- see .catalog-search.is-open for the matching square-cornered
+   * look this lines up against. */
+  position: fixed;
+  z-index: 30;
   max-height: min(70vh, 560px);
   overflow-y: auto;
   display: flex;
@@ -688,6 +695,13 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  /* Reserves the scrollbar's track unconditionally, instead of only once
+   * the item list actually grows tall enough to need one -- without this,
+   * everything in here (most visibly .catalog-main-toolbar's
+   * space-between row) shifted left by the scrollbar's width the moment
+   * it appeared, since that width silently came out of .catalog-main's
+   * own content box. */
+  scrollbar-gutter: stable;
   /* The scrollbar renders flush against this box's own right edge
    * (padding doesn't push a scrollbar over, browsers draw it inside the
    * padding box) -- so this padding is what actually separates the item

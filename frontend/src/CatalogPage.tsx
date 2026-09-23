@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
 
@@ -397,11 +398,47 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const [detailClosing, setDetailClosing] = useState(false)
   const [iconMorphed, setIconMorphed] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchWrapRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const searchFocusedRef = useRef(searchFocused)
   searchFocusedRef.current = searchFocused
   const clearQueryTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  // Portaled to <body> (see the createPortal call below) and positioned
+  // from this instead of plain CSS -- .catalog-search-wrap sits inside
+  // several ancestors (.catalog-topbar, .catalog-topbar-right) that are
+  // position:relative/static with no z-index of their own, and turned out
+  // NOT to let the wrap's z-index:16 stacking context win against
+  // .catalog-body's sibling content despite the numbers being right
+  // (confirmed empirically -- bumping z-index arbitrarily higher didn't
+  // help, only actually moving the DOM node did). Portaling sidesteps
+  // needing to fully understand why and guarantees it paints on top.
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null)
 
   const searchActive = searchFocused
+
+  useEffect(() => {
+    if (!searchActive) return
+    const wrap = searchWrapRef.current
+    if (!wrap) return
+    function updateRect() {
+      const r = wrap!.getBoundingClientRect()
+      // Same 5px overlap as before (masks the search field's own focus
+      // ring at the seam instead of leaving a gap or a visible border).
+      setDropdownRect({ top: r.bottom - 5, left: r.left, width: r.width })
+    }
+    updateRect()
+    // ResizeObserver catches the wrap's own width-expand CSS transition
+    // (mobile) frame by frame, not just its start/end state.
+    const ro = new ResizeObserver(updateRect)
+    ro.observe(wrap)
+    window.addEventListener('resize', updateRect)
+    window.addEventListener('scroll', updateRect, true)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', updateRect)
+      window.removeEventListener('scroll', updateRect, true)
+    }
+  }, [searchActive])
 
   // Deliberately NOT connected to the item grid at all -- this is a
   // standalone quick-find/command-line utility (see the terminal-icon
@@ -491,9 +528,14 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   }, [detailClosing])
 
   function handleSearchWrapBlur(e: FocusEvent<HTMLDivElement>) {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-      setSearchFocused(false)
-    }
+    const related = e.relatedTarget as Node | null
+    // The dropdown is portaled to <body> (see dropdownRect above), so it's
+    // no longer a DOM descendant of the wrap -- e.currentTarget.contains()
+    // alone would say focus left even when it just moved from the input
+    // to a result row, closing the dropdown out from under a keyboard
+    // (Tab) user before their selection could register.
+    if (e.currentTarget.contains(related) || dropdownRef.current?.contains(related)) return
+    setSearchFocused(false)
   }
 
   function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -536,7 +578,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
         </div>
 
         <div className="catalog-topbar-right">
-          <div className="catalog-search-wrap" onBlur={handleSearchWrapBlur}>
+          <div className="catalog-search-wrap" ref={searchWrapRef} onBlur={handleSearchWrapBlur}>
             <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
               <span className="catalog-search-icon">
                 <span className={`search-icon-face ${!iconMorphed ? 'is-visible' : ''}`}>
@@ -564,7 +606,16 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               />
             </label>
 
-            <div className={`search-dropdown ${searchActive ? 'is-open' : ''}`}>
+            {createPortal(
+              <div
+                className={`search-dropdown ${searchActive ? 'is-open' : ''}`}
+                ref={dropdownRef}
+                style={
+                  dropdownRect
+                    ? { top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }
+                    : undefined
+                }
+              >
               {!searchText ? (
                 <div className="search-hint">
                   <p>
@@ -617,7 +668,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
               ) : (
                 <p className="search-empty">Совпадений не найдено.</p>
               )}
-            </div>
+              </div>,
+              document.body,
+            )}
           </div>
 
           <button
