@@ -1245,8 +1245,12 @@
       background-color 0.3s ease;
   }
 
+  /* opacity:1 overrides the desktop collapsed rule's opacity:0 -- opacity
+   * isn't in this breakpoint's transition list, so inheriting it made the
+   * sheet vanish instantly on close instead of sliding back down. */
   .catalog-body.sidebar-collapsed .catalog-sidebar {
     transform: translateY(100%);
+    opacity: 1;
     pointer-events: none;
   }
 
