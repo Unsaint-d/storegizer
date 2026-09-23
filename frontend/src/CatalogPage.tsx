@@ -375,7 +375,7 @@ type CatalogPageProps = {
 // The search/terminal icon swaps every time this elapses, so each glyph
 // stays up for one full interval before flipping back -- see the effect
 // in CatalogPage that drives ICON_MORPH.
-const ICON_MORPH_INTERVAL_MS = 30000
+const ICON_MORPH_INTERVAL_MS = 15000
 
 // Matches .search-dropdown's own opacity/transform transition duration --
 // see openDetail for why clearing the query waits this long.
@@ -471,13 +471,13 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const bestMatch = searchResults[0]?.item
   const restResults = searchResults.slice(1)
 
-  // Every 30s, swap the search icon for a ">/" glyph, then swap back 30s
+  // Every 15s, swap the search icon for a ">/" glyph, then swap back 15s
   // later -- each stays up for a full interval rather than a brief flash,
   // so there's actually time to register it doubles as a command line, not
   // just item search. Skipped while the field is focused (distracting
   // mid-interaction, and pointless since the user is already looking right
   // at it) -- the swap due while focused is simply skipped, not queued, so
-  // it picks back up on the regular 30s cadence once the field blurs.
+  // it picks back up on the regular 15s cadence once the field blurs.
   useEffect(() => {
     const interval = setInterval(() => {
       if (searchFocusedRef.current) return
@@ -752,7 +752,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
           {filtered.length === 0 ? (
             <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
           ) : (
-            <div className={`catalog-items view-${view}`}>
+            <div key={view} className={`catalog-items view-${view}`}>
               {filtered.map((item) => {
                 if (view === 'large') return <ItemLargeCard key={item.id} item={item} />
                 if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />

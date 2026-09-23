@@ -239,6 +239,11 @@
    * without this override the icon sat near the top of the field instead
    * of centered. */
   align-self: center;
+  /* content-box (overriding the global border-box) so the 16x16 below is
+   * just the glyph's own footprint -- padding-right/border-right then add
+   * on top instead of eating into it, which matters for .search-icon-face
+   * below. */
+  box-sizing: content-box;
   width: 16px;
   height: 16px;
   margin-right: 0.7rem;
@@ -248,11 +253,21 @@
 }
 
 /* The two icons (search / terminal) stack on top of each other and cross-
- * fade with a quick spin+blur, driven by CatalogPage's 30s interval --
- * see .search-icon-face below. */
+ * fade with a quick spin+blur, driven by CatalogPage's 15s interval --
+ * see .search-icon-face below. Sized to the icon's own 16x16 content box
+ * and anchored top-left, NOT inset:0 -- an absolutely positioned box's
+ * containing block is its ancestor's *padding* box, so inset:0 would
+ * stretch this across padding-right too, silently swallowing the gap that
+ * padding-right is there to reserve before the divider (border-right on
+ * the parent) and leaving the glyph almost touching it instead of
+ * centered between icon and divider. Top/left:0 lines up with the content
+ * box's own corner regardless, since only padding-right is non-zero here. */
 .search-icon-face {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
   display: grid;
   place-items: center;
   opacity: 0;
@@ -736,6 +751,30 @@
 .catalog-items {
   display: grid;
   gap: 0.9rem;
+  /* Switching view mode swaps in a structurally different set of cards
+   * (list rows vs. grid cards vs. large cards), not just a grid-template
+   * change on the same markup -- nothing to CSS-transition between those
+   * directly. CatalogPage keys this container by `view`, so React remounts
+   * it on switch and this plays fresh each time instead of animating a
+   * continuous layout change. */
+  animation: catalog-items-in 0.25s ease both;
+}
+
+@keyframes catalog-items-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catalog-items {
+    animation: none;
+  }
 }
 
 .view-grid {
