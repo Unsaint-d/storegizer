@@ -767,31 +767,33 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             </div>
           </div>
 
-          {filtered.length === 0 ? (
-            <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
-          ) : (
-            <div key={view} className={`catalog-items view-${view}`}>
-              {filtered.map((item) => {
-                if (view === 'large') return <ItemLargeCard key={item.id} item={item} />
-                if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
-                return (
-                  <article key={item.id} className="item-card">
-                    <div className="item-icon">
-                      <ItemIcon icon={item.icon} />
-                    </div>
-                    <div className="item-body">
-                      <h3>{item.name}</h3>
-                      <p className="item-location" title={locationPath(item)}>
-                        {locationShort(item)}
-                      </p>
-                      <code className="item-barcode">{item.barcode}</code>
-                    </div>
-                    <span className="item-qty">×{item.qty}</span>
-                  </article>
-                )
-              })}
-            </div>
-          )}
+          <div className="catalog-scroll">
+            {filtered.length === 0 ? (
+              <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
+            ) : (
+              <div key={view} className={`catalog-items view-${view}`}>
+                {filtered.map((item) => {
+                  if (view === 'large') return <ItemLargeCard key={item.id} item={item} />
+                  if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
+                  return (
+                    <article key={item.id} className="item-card">
+                      <div className="item-icon">
+                        <ItemIcon icon={item.icon} />
+                      </div>
+                      <div className="item-body">
+                        <h3>{item.name}</h3>
+                        <p className="item-location" title={locationPath(item)}>
+                          {locationShort(item)}
+                        </p>
+                        <code className="item-barcode">{item.barcode}</code>
+                      </div>
+                      <span className="item-qty">×{item.qty}</span>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </main>
       </div>
 
