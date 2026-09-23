@@ -390,6 +390,24 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window === 'undefined' ? true : window.innerWidth > 860,
   )
+
+  // Re-applies the same per-layout default as the initializer above each
+  // time the window crosses the breakpoint. Desktop has no control that can
+  // close the sidebar (removed by request), so without this, closing the
+  // mobile sheet and then widening the window left sidebarOpen stuck at
+  // false with nothing on desktop able to flip it back. The reverse
+  // crossing resets to closed so the sheet doesn't pop up over the page
+  // just from narrowing the window. Resizes that stay on one side of the
+  // breakpoint don't fire this, so the mobile sheet's own open/closed state
+  // is left alone.
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 861px)')
+    function handleChange(e: MediaQueryListEvent) {
+      setSidebarOpen(e.matches)
+    }
+    desktop.addEventListener('change', handleChange)
+    return () => desktop.removeEventListener('change', handleChange)
+  }, [])
   const [sort, setSort] = useState<SortKey>('name')
   const [category, setCategory] = useState<string>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
