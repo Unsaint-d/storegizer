@@ -1333,8 +1333,68 @@
   .catalog-page {
     padding: 0.75rem;
   }
+}
 
+/* Mobile grid view: compact square tiles, just a large icon and the name
+ * -- a quick visual scan mode between the detailed list and the large
+ * cards. ~3 per row on a phone. Location, barcode and qty are hidden;
+ * they're in the other two views. */
+@media (max-width: 860px) {
   .view-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.6rem;
+  }
+
+  .view-grid .item-card {
+    aspect-ratio: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.3rem;
+  }
+
+  /* 52% is about the most that still fits a two-line name inside a square
+   * at the smallest tile width (96px) -- any larger and the tile stretches
+   * taller than it is wide. */
+  .view-grid .item-icon {
+    width: 52%;
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: 12px;
+  }
+
+  .view-grid .item-icon svg {
+    width: 62%;
+    height: 62%;
+  }
+
+  .view-grid .item-body {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .view-grid .item-body h3 {
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+    /* Real hyphenation where the browser has a Russian dictionary (Android
+     * Chrome, iOS Safari -- needs <html lang="ru">); overflow-wrap is the
+     * fallback that still breaks a word too long for the tile instead of
+     * letting it spill out. */
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .view-grid .item-location,
+  .view-grid .item-barcode,
+  .view-grid .item-qty {
+    display: none;
   }
 }
