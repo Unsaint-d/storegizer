@@ -86,8 +86,12 @@ function locationPath(item: CatalogItem): string {
 // chain is rarely what you need at a glance, and mostly just pushed other
 // content around or got truncated anyway. The full path is still one
 // hover away via the native title tooltip (see .item-location usages).
+function locationCell(item: CatalogItem): string {
+  return item.location[item.location.length - 1] ?? ''
+}
+
 function locationShort(item: CatalogItem): string {
-  const last = item.location[item.location.length - 1] ?? ''
+  const last = locationCell(item)
   return item.location.length > 1 ? `…${last}` : last
 }
 
@@ -788,6 +792,11 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                         <code className="item-barcode">{item.barcode}</code>
                       </div>
                       <span className="item-qty">×{item.qty}</span>
+                      <p className="item-tile-meta" title={locationPath(item)}>
+                        <span className="item-tile-cell">{locationCell(item)}</span>
+                        <span className="item-tile-sep" aria-hidden="true">|</span>
+                        <span className="item-tile-qty">×{item.qty}</span>
+                      </p>
                     </article>
                   )
                 })}

@@ -120,21 +120,33 @@
     position: relative;
   }
 
+  /* Fade only -- it's absolutely positioned, so it takes no room in the
+   * row and there's nothing to shrink out of the way. (Animating
+   * max-width here collapsed the box toward its center, dragging the
+   * left-aligned text sideways as it clipped.) The expanding search field
+   * paints over it anyway. */
   .catalog-brand {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    max-width: 170px;
     opacity: 1;
-    overflow: hidden;
-    transition: max-width 0.3s cubic-bezier(0.65, 0, 0.35, 1) 0.2s, opacity 0.2s ease 0.2s;
+    transition: opacity 0.2s ease 0.2s;
   }
 
   .catalog-topbar.search-active .catalog-brand {
-    max-width: 0;
     opacity: 0;
     transition-delay: 0s;
+  }
+
+  /* Same 40x40 footprint as .menu-btn/.theme-toggle-btn, with the 16px
+   * icon centered in it while collapsed ((40 - 16) / 2 = 12px padding).
+   * The desktop padding left it 40x42 with the icon ~2px off-center.
+   * Scoped under .catalog-topbar to outrank the base .catalog-search rule,
+   * which comes later in this file. */
+  .catalog-topbar .catalog-search {
+    height: 40px;
+    padding: 0 12px;
   }
 
   /* Search + theme sit together in the top-right corner instead of
@@ -1364,10 +1376,16 @@
   }
 }
 
-/* Mobile grid view: compact square tiles, just a large icon and the name
- * -- a quick visual scan mode between the detailed list and the large
- * cards. ~3 per row on a phone. Location, barcode and qty are hidden;
- * they're in the other two views. */
+/* Only shown by the mobile tile layout below; the desktop grid card shows
+ * location and qty its own way. */
+.item-tile-meta {
+  display: none;
+}
+
+/* Mobile grid view: compact square tiles -- a large icon, the name, and a
+ * "cell | ×qty" line. A quick visual scan mode between the detailed list
+ * and the large cards, ~3 per row on a phone. The full location path and
+ * the barcode are left to the other two views. */
 @media (max-width: 860px) {
   .view-grid {
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -1379,23 +1397,25 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.3rem;
+    gap: 4px;
+    padding: 6px 0.3rem;
   }
 
-  /* 52% is about the most that still fits a two-line name inside a square
-   * at the smallest tile width (96px) -- any larger and the tile stretches
-   * taller than it is wide. */
+  /* 40% is about the most that still fits the icon, a two-line name and
+   * the meta line inside a square at the smallest tile width (96px) --
+   * any larger and the tile stretches taller than it is wide. The glyph
+   * fills more of its plate to stay about as big as before the meta line
+   * took some of the height. */
   .view-grid .item-icon {
-    width: 52%;
+    width: 40%;
     height: auto;
     aspect-ratio: 1;
-    border-radius: 12px;
+    border-radius: 10px;
   }
 
   .view-grid .item-icon svg {
-    width: 62%;
-    height: 62%;
+    width: 72%;
+    height: 72%;
   }
 
   .view-grid .item-body {
@@ -1403,9 +1423,44 @@
     width: 100%;
   }
 
+  .view-grid .item-tile-meta {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.3rem;
+    width: 100%;
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--muted);
+    transition: color 0.3s ease;
+  }
+
+  /* Body font rather than mono -- it's much narrower, so more of the cell
+   * name fits. It gives way (ellipsis) so the qty is never cut off. */
+  .item-tile-cell {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* --border alone is nearly invisible against the tile's --surface-2. */
+  .item-tile-sep {
+    flex-shrink: 0;
+    opacity: 0.45;
+  }
+
+  .item-tile-qty {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+
   .view-grid .item-body h3 {
     font-size: 12px;
-    line-height: 1.2;
+    line-height: 1.15;
     text-align: center;
     white-space: normal;
     /* Real hyphenation where the browser has a Russian dictionary (Android
