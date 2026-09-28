@@ -1795,7 +1795,7 @@
   .category-chip,
   .tag-chip,
   .tag-input-wrap,
-  .level-row {
+  .level-item {
     animation: none;
   }
 }
@@ -2009,12 +2009,15 @@
   gap: 0.4rem;
 }
 
+.level-item {
+  animation: appear 0.22s ease both;
+}
+
 .level-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem 0.75rem;
-  animation: appear 0.22s ease both;
 }
 
 .level-upto {
@@ -2036,37 +2039,146 @@
   color: var(--muted);
 }
 
-/* A round swatch in the level's color that opens the native color picker.
- * The <input> is stretched invisibly over it: its own swatch rendering
- * differs per browser and can't be fully restyled. */
+/* The level's color; opens its picker inline under the row. No
+ * background-color transition: while dragging in the picker it follows
+ * the pointer and must not trail behind it. */
 .level-color {
-  position: relative;
   flex-shrink: 0;
   width: 24px;
   height: 24px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3px var(--border);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
 }
 
 .level-color:hover {
   transform: scale(1.1);
 }
 
-.level-color:focus-within {
+.level-color.is-open,
+.level-color:focus-visible {
+  outline: none;
   box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3.5px var(--accent);
 }
 
-.level-color input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+/* ---------- color picker (inline, per level) ---------- */
+
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding: 0.7rem;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.color-picker-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.color-presets {
+  display: flex;
+  gap: 7px;
+}
+
+.color-preset {
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
-  opacity: 0;
+  border-radius: 50%;
   cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.color-preset:hover {
+  transform: scale(1.12);
+}
+
+.color-preset.is-selected {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink);
+}
+
+.color-hex {
+  width: 86px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  outline: none;
+  transition: box-shadow 0.15s ease, background-color 0.3s ease;
+}
+
+.color-hex:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* Saturation left-to-right, brightness bottom-to-top, over the current
+ * hue (--hue, set inline). touch-action:none so dragging on a phone moves
+ * the thumb instead of scrolling the card. */
+.color-sv {
+  position: relative;
+  height: 130px;
+  border-radius: 8px;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue));
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-hue {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 16.66%,
+    #0f0 33.33%,
+    #0ff 50%,
+    #00f 66.66%,
+    #f0f 83.33%,
+    #f00 100%
+  );
+  cursor: pointer;
+  touch-action: none;
+}
+
+.color-sv:focus-visible,
+.color-hue:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Fixed white/dark rings: they sit on arbitrary colors, not the page. */
+.color-sv-thumb,
+.color-hue-thumb {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.color-hue-thumb {
+  top: 50%;
 }
 
 .level-remove {

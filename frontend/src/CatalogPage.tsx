@@ -2,13 +2,13 @@ import {
   createContext,
   useContext,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -1179,53 +1179,188 @@ function RulePreview({ levels, marker }: { levels: StockLevel[]; marker?: number
   )
 }
 
-// The native picker fires `input` on every step of a drag. Committing each
-// one to the item re-rendered the whole catalog (and restarted every card's
-// color transition) per step, which lagged badly -- so while picking only
-// this swatch updates (local draft), and the color reaches the item once,
-// on the native `change` event, when the user settles on it.
-function LevelColorInput({
+type Hsv = { h: number; s: number; v: number }
+
+function hexToHsv(hex: string): Hsv {
+  const n = Number.parseInt(hex.slice(1), 16)
+  const r = ((n >> 16) & 255) / 255
+  const g = ((n >> 8) & 255) / 255
+  const b = (n & 255) / 255
+  const max = Math.max(r, g, b)
+  const d = max - Math.min(r, g, b)
+  let h = 0
+  if (d) {
+    if (max === r) h = 60 * (((g - b) / d) % 6)
+    else if (max === g) h = 60 * ((b - r) / d + 2)
+    else h = 60 * ((r - g) / d + 4)
+  }
+  return { h: h < 0 ? h + 360 : h, s: max ? d / max : 0, v: max }
+}
+
+function hsvToHex({ h, s, v }: Hsv): string {
+  const channel = (n: number) => {
+    const k = (n + h / 60) % 6
+    const c = v - v * s * Math.max(0, Math.min(k, 4 - k, 1))
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return `#${channel(5)}${channel(3)}${channel(1)}`
+}
+
+const clamp01 = (x: number) => Math.min(Math.max(x, 0), 1)
+
+// Presets, a saturation/brightness square, a hue slider and a hex field,
+// all in one panel -- the browser's own picker keeps presets and the full
+// palette on separate screens. While dragging only this panel (and the
+// row's swatch, via onDraft) updates; the color reaches the item on
+// release, so the whole catalog doesn't re-render on every pointer move.
+function ColorPicker({
   value,
-  presetsId,
-  label,
+  onDraft,
   onCommit,
 }: {
   value: string
-  presetsId: string
-  label: string
+  onDraft: (color: string) => void
   onCommit: (color: string) => void
 }) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [hsv, setHsv] = useState(() => hexToHsv(value))
+  // Re-derive from the prop when it changes from outside (a preset, the
+  // hex field, another level's edit) -- React's "adjust state on prop
+  // change" pattern, rather than an effect.
+  const [lastValue, setLastValue] = useState(value)
+  if (value !== lastValue) {
+    setLastValue(value)
+    setHsv(hexToHsv(value))
+  }
+  // The latest color mid-drag, for the commit on release (pointerup can
+  // run before a re-render has caught up with the last move).
+  const dragRef = useRef<Hsv>(hsv)
+  const [hexText, setHexText] = useState<string | null>(null)
+  const hex = hsvToHex(hsv)
 
-  useEffect(() => {
-    const input = inputRef.current
-    if (!input) return
-    function handleChange() {
-      onCommit(input!.value)
-      setDraft(null)
+  function preview(next: Hsv) {
+    dragRef.current = next
+    setHsv(next)
+    onDraft(hsvToHex(next))
+  }
+
+  function commit(next: Hsv) {
+    setHsv(next)
+    onCommit(hsvToHex(next))
+  }
+
+  function relative(e: PointerEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect()
+    return { x: clamp01((e.clientX - r.left) / r.width), y: clamp01((e.clientY - r.top) / r.height) }
+  }
+
+  function dragHandlers(apply: (x: number, y: number, from: Hsv) => Hsv) {
+    return {
+      onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+        e.currentTarget.setPointerCapture(e.pointerId)
+        const { x, y } = relative(e)
+        preview(apply(x, y, hsv))
+      },
+      onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+        const { x, y } = relative(e)
+        preview(apply(x, y, dragRef.current))
+      },
+      // Only for a drag that started here (a press elsewhere released over
+      // the picker shouldn't commit anything).
+      onPointerUp: (e: PointerEvent<HTMLDivElement>) => {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) commit(dragRef.current)
+      },
     }
-    input.addEventListener('change', handleChange)
-    return () => input.removeEventListener('change', handleChange)
-  }, [onCommit])
+  }
 
-  const shown = draft ?? value
+  function arrowKeys(e: KeyboardEvent<HTMLDivElement>, step: (dx: number, dy: number) => Hsv) {
+    const delta: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    }
+    const d = delta[e.key]
+    if (!d) return
+    e.preventDefault()
+    commit(step(d[0], d[1]))
+  }
+
   return (
-    <label className="level-color" style={{ background: shown }}>
-      <input
-        ref={inputRef}
-        type="color"
-        list={presetsId}
-        value={shown}
-        aria-label={label}
-        onChange={(e) => setDraft(e.target.value)}
-      />
-    </label>
+    <div className="color-picker">
+      <div className="color-picker-top">
+        <div className="color-presets" role="group" aria-label="Готовые цвета">
+          {LEVEL_COLOR_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className={`color-preset ${preset === hex ? 'is-selected' : ''}`}
+              style={{ background: preset }}
+              aria-label={`Цвет ${preset}`}
+              aria-pressed={preset === hex}
+              onClick={() => commit(hexToHsv(preset))}
+            />
+          ))}
+        </div>
+        <input
+          className="color-hex"
+          value={hexText ?? hex}
+          maxLength={7}
+          spellCheck={false}
+          aria-label="Цвет в формате HEX"
+          onFocus={() => setHexText(hex)}
+          onBlur={() => setHexText(null)}
+          onChange={(e) => {
+            const text = e.target.value
+            setHexText(text)
+            const normalized = (text.startsWith('#') ? text : `#${text}`).toLowerCase()
+            if (/^#[0-9a-f]{6}$/.test(normalized)) commit(hexToHsv(normalized))
+          }}
+        />
+      </div>
+
+      <div
+        className="color-sv"
+        style={{ '--hue': `hsl(${hsv.h} 100% 50%)` } as CSSProperties}
+        role="slider"
+        tabIndex={0}
+        aria-label="Насыщенность и яркость"
+        aria-valuetext={`насыщенность ${Math.round(hsv.s * 100)} %, яркость ${Math.round(hsv.v * 100)} %`}
+        {...dragHandlers((x, y, from) => ({ ...from, s: x, v: 1 - y }))}
+        onKeyDown={(e) =>
+          arrowKeys(e, (dx, dy) => ({ ...hsv, s: clamp01(hsv.s + dx * 0.04), v: clamp01(hsv.v - dy * 0.04) }))
+        }
+      >
+        <span
+          className="color-sv-thumb"
+          style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: hex }}
+        />
+      </div>
+
+      <div
+        className="color-hue"
+        role="slider"
+        tabIndex={0}
+        aria-label="Оттенок"
+        aria-valuemin={0}
+        aria-valuemax={360}
+        aria-valuenow={Math.round(hsv.h)}
+        {...dragHandlers((x, _y, from) => ({ ...from, h: x * 360 }))}
+        onKeyDown={(e) => arrowKeys(e, (dx) => ({ ...hsv, h: (hsv.h + dx * 5 + 360) % 360 }))}
+      >
+        <span className="color-hue-thumb" style={{ left: `${(hsv.h / 360) * 100}%` }} />
+      </div>
+    </div>
   )
 }
 
 // Rows keep the order they were added in (not sorted by threshold) so a
 // row doesn't jump away from under the cursor mid-edit; evaluation sorts.
+// A level's swatch opens its color picker inline under the row (one at a
+// time) -- inline rather than a popover, since everything here sits inside
+// clipping containers (the modal's scroll, the collapse animations).
 function LevelEditor({
   levels,
   norm,
@@ -1235,6 +1370,11 @@ function LevelEditor({
   norm: number
   onChange: (levels: StockLevel[]) => void
 }) {
+  const [pickerFor, setPickerFor] = useState<string | null>(null)
+  // The color being dragged in the open picker, shown on its row's
+  // swatch before it's committed.
+  const [draft, setDraft] = useState<{ id: string; color: string } | null>(null)
+
   function patch(id: string, change: Partial<StockLevel>) {
     onChange(levels.map((l) => (l.id === id ? { ...l, ...change } : l)))
   }
@@ -1244,56 +1384,63 @@ function LevelEditor({
     onChange([...levels, { id: crypto.randomUUID(), upTo: Math.min(top + 20, 100), color: nextLevelColor(levels) }])
   }
 
-  const presetsId = useId()
-
   return (
     <div className="level-editor">
-      {/* Shown as preset swatches inside the native picker (Chromium and
-       * Safari; Firefox ignores it and just shows its own picker). */}
-      <datalist id={presetsId}>
-        {LEVEL_COLOR_PRESETS.map((color) => (
-          <option key={color} value={color} />
-        ))}
-      </datalist>
       {levels.length === 0 && <p className="detail-empty">Уровней нет — остаток всегда в цвете категории.</p>}
       <ul className="level-list">
-        {levels.map((level) => (
-          <li key={level.id} className="level-row">
-            <label className="level-upto">
-              до
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={level.upTo}
-                aria-label="Порог уровня, процентов от нормы"
-                onChange={(e) => {
-                  const v = e.target.valueAsNumber
-                  if (!Number.isNaN(v)) patch(level.id, { upTo: Math.min(Math.max(Math.round(v), 0), 100) })
-                }}
-              />
-              %
-            </label>
-            <span className="level-count">≤ {Math.floor((norm * level.upTo) / 100)} шт.</span>
-            {/* Any color, not a fixed palette -- a rule can have more
-             * levels than any fixed set of swatches. */}
-            <LevelColorInput
-              value={level.color}
-              presetsId={presetsId}
-              label={`Цвет уровня до ${level.upTo} %`}
-              onCommit={(color) => patch(level.id, { color })}
-            />
-            <button
-              type="button"
-              className="level-remove"
-              aria-label={`Удалить уровень до ${level.upTo} %`}
-              onClick={() => onChange(levels.filter((l) => l.id !== level.id))}
-            >
-              <CloseIcon />
-            </button>
-          </li>
-        ))}
+        {levels.map((level) => {
+          const pickerOpen = pickerFor === level.id
+          const shownColor = draft?.id === level.id ? draft.color : level.color
+          return (
+            <li key={level.id} className="level-item">
+              <div className="level-row">
+                <label className="level-upto">
+                  до
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={level.upTo}
+                    aria-label="Порог уровня, процентов от нормы"
+                    onChange={(e) => {
+                      const v = e.target.valueAsNumber
+                      if (!Number.isNaN(v)) patch(level.id, { upTo: Math.min(Math.max(Math.round(v), 0), 100) })
+                    }}
+                  />
+                  %
+                </label>
+                <span className="level-count">≤ {Math.floor((norm * level.upTo) / 100)} шт.</span>
+                <button
+                  type="button"
+                  className={`level-color ${pickerOpen ? 'is-open' : ''}`}
+                  style={{ background: shownColor }}
+                  aria-label={`Цвет уровня до ${level.upTo} %`}
+                  aria-expanded={pickerOpen}
+                  onClick={() => setPickerFor(pickerOpen ? null : level.id)}
+                />
+                <button
+                  type="button"
+                  className="level-remove"
+                  aria-label={`Удалить уровень до ${level.upTo} %`}
+                  onClick={() => onChange(levels.filter((l) => l.id !== level.id))}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+              <Collapse open={pickerOpen}>
+                <ColorPicker
+                  value={level.color}
+                  onDraft={(color) => setDraft({ id: level.id, color })}
+                  onCommit={(color) => {
+                    setDraft(null)
+                    patch(level.id, { color })
+                  }}
+                />
+              </Collapse>
+            </li>
+          )
+        })}
       </ul>
       <button type="button" className="level-add" onClick={addLevel}>
         <PlusIcon />
