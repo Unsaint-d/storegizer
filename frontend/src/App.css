@@ -31,16 +31,19 @@
   color: #991b1b;
 }
 
-section {
+/* Scoped to .page (the debug dashboard) for the same reason as `code`
+ * below -- unscoped, these reached every section/list in the catalog too
+ * (e.g. light divider lines under the search hint's list items). */
+.page section {
   margin-bottom: 2rem;
 }
 
-ul {
+.page ul {
   list-style: none;
   padding: 0;
 }
 
-li {
+.page li {
   padding: 0.4rem 0;
   border-bottom: 1px solid #e5e7eb;
 }

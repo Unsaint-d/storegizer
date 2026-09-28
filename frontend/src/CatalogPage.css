@@ -1408,12 +1408,13 @@
   }
 }
 
-/* ---------- item detail modal (placeholder) ---------- */
+/* ---------- item detail modal ---------- */
 
+/* Above the mobile filters FAB (22), its sheet (21) and backdrop (20). */
 .item-detail-overlay {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 25;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(3px);
   display: grid;
@@ -1444,19 +1445,26 @@
   }
 }
 
+/* The whole card scrolls as one when it's taller than the viewport (photo
+ * included), so nothing gets cut off on a phone. */
 .item-detail-modal {
   width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  padding: 1rem;
+  max-width: 560px;
+  max-height: calc(100svh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--surface);
   box-shadow: var(--shadow);
   animation: item-detail-modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Focused programmatically on open (so Escape works), not by the user --
+ * no ring for that. */
+.item-detail-modal:focus {
+  outline: none;
 }
 
 .item-detail-modal.is-closing {
@@ -1485,42 +1493,595 @@
   }
 }
 
-.item-detail-modal-header {
+.detail-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
+  flex-direction: column;
 }
 
-.item-detail-close {
+.detail-photo {
+  position: relative;
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  height: 220px;
+  background: var(--surface-2);
+  border-bottom: 4px solid var(--cat);
+  transition: background-color 0.3s ease;
+}
+
+.detail-photo .item-photo {
+  position: absolute;
+  inset: 0;
+}
+
+/* Same fixed dark glass as the card's category pill: it sits on a photo. */
+.detail-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border: none;
-  border-radius: 8px;
+  border-radius: 999px;
+  background: rgba(20, 16, 12, 0.62);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.detail-close:hover {
+  background: rgba(20, 16, 12, 0.82);
+}
+
+.detail-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tag-card-low.detail-low {
+  top: 14px;
+  right: auto;
+  left: 12px;
+}
+
+.detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  padding: 1.1rem 1.25rem 1.3rem;
+}
+
+.detail-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.detail-label {
+  margin: 0 0 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  transition: color 0.3s ease;
+}
+
+.detail-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.detail-fact {
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.detail-fact-qty {
+  min-width: 150px;
+}
+
+.detail-qty {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.detail-qty-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 38px;
+  line-height: 1;
+  color: var(--ink);
+  transition: color 0.3s ease;
+}
+
+.detail-card.is-low .detail-qty-num {
+  color: var(--remove);
+}
+
+.detail-qty-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.detail-fact-qty .stock-meter {
+  max-width: none;
+}
+
+/* Detail card: the whole address, wrapped, rather than truncated. */
+.cell-label-full {
+  align-self: stretch;
+}
+
+.cell-label-full .cell-label-path {
+  display: block;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.cell-label-full .cell-label-parents {
+  overflow: visible;
+}
+
+.detail-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.detail-section-head .detail-label {
+  margin: 0;
+}
+
+.detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.detail-link:hover {
+  text-decoration: underline;
+}
+
+.detail-link svg {
+  width: 14px;
+  height: 14px;
+}
+
+.detail-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- detail card: categories ---------- */
+
+.detail-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  padding: 3px 3px 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 12.5px;
+  color: var(--ink);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* The primary category -- the one whose hue the card wears (--cat). */
+.category-chip.is-primary {
+  box-shadow: inset 0 0 0 1.5px var(--cat);
+}
+
+.category-chip-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.category-chip-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-chip-parents {
+  color: var(--muted);
+}
+
+.category-chip-path b {
+  font-weight: 600;
+}
+
+.category-chip-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
   background: none;
   color: var(--muted);
   cursor: pointer;
   transition: color 0.2s ease, background-color 0.2s ease;
 }
 
-.item-detail-close:hover {
+.category-chip-remove:hover {
   color: var(--ink);
+  background: var(--surface);
+}
+
+.category-chip-remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cat-tree {
+  margin-top: 0.6rem;
+  max-height: 290px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.35rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.cat-tree-level {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* --depth is set inline per level. */
+.cat-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 32px;
+  padding-left: calc(var(--depth, 0) * 18px);
+}
+
+.cat-tree-toggle {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.cat-tree-toggle:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.cat-tree-toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+
+.cat-tree-toggle.is-open svg {
+  transform: rotate(90deg);
+}
+
+/* Leaves still expand (to reach their "+" row), just quieter. */
+.cat-tree-toggle.is-leaf {
+  opacity: 0.35;
+}
+
+.cat-tree-toggle.is-leaf:hover {
+  opacity: 1;
+}
+
+.cat-tree-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.3s ease;
+}
+
+.cat-tree-label:hover {
+  background: var(--surface);
+}
+
+.cat-tree-label input {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.cat-tree-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.cat-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cat-tree-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Indented past the toggle column so "+" rows line up with the labels. */
+.cat-tree-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 24px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.cat-tree-add:hover {
+  background: var(--surface);
+}
+
+.cat-tree-add svg {
+  width: 13px;
+  height: 13px;
+}
+
+.inline-create {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin-left: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+}
+
+/* ---------- detail card: tags ---------- */
+
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 28px;
+  padding: 0 10px 0 7px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* The role-style colored dot doubles as the remove button: an × shows in
+ * it on hover/focus, and always on touch screens (no hover there). The
+ * × color is fixed dark -- it's drawn on the tag's hue, not the page. */
+.tag-chip-remove {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--tag);
+  color: transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.tag-chip-remove svg {
+  width: 9px;
+  height: 9px;
+}
+
+.tag-chip:hover .tag-chip-remove,
+.tag-chip-remove:focus-visible {
+  color: rgba(20, 16, 12, 0.85);
+  transform: scale(1.15);
+}
+
+@media (hover: none) {
+  .tag-chip-remove {
+    color: rgba(20, 16, 12, 0.85);
+  }
+}
+
+.tag-add {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed var(--border);
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.tag-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tag-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tag-input-wrap {
+  position: relative;
+}
+
+.tag-input {
+  width: 150px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  outline: none;
+}
+
+/* Opens upward: the tags sit near the bottom of the card (only the code
+ * stub is below), so a downward list got cut off by the modal's edge. */
+.tag-suggest {
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow), inset 0 0 0 1px var(--border);
+}
+
+.tag-suggest li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tag-suggest li:hover,
+.tag-suggest li.is-active {
   background: var(--surface-2);
 }
 
-.item-detail-close svg {
-  width: 16px;
-  height: 16px;
+.tag-suggest-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
-.item-detail-note {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  transition: color 0.3s ease;
+/* ---------- detail card: code stub ---------- */
+
+/* Perforation only, no side notches like the cards': the modal floats over
+ * the blurred backdrop, so there's no solid color a notch could fake a
+ * cut-out with. */
+.detail-stub {
+  padding: 0.9rem 1.25rem 1.1rem;
+  background: var(--surface-2);
+  border-top: 1.5px dashed var(--border);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.detail-stub .barcode {
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.detail-stub .barcode svg {
+  height: 44px;
+}
+
+.detail-stub .barcode-digits {
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .detail-photo {
+    height: 180px;
+  }
+
+  .detail-title {
+    font-size: 26px;
+  }
+
+  .detail-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---------- responsive ---------- */

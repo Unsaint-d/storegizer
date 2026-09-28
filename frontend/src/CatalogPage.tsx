@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+  type KeyboardEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
@@ -26,10 +36,22 @@ type SortKey = 'name' | 'qty' | 'location'
 type FilterKey = 'all' | 'low' | 'high'
 type ViewMode = 'grid' | 'list' | 'large'
 
+// Categories form a tree of any depth ("Монтажное › Электрика ›
+// Освещение"), stored as an adjacency list like the backend's
+// categories.parent_id. An item can sit in several categories at once;
+// the first is its primary one and decides the card's color.
+type CategoryNode = {
+  id: string
+  name: string
+  parentId: string | null
+}
+
+type CategoryIndex = Map<string, CategoryNode>
+
 type CatalogItem = {
   id: number
   name: string
-  category: string
+  categoryIds: string[]
   location: string[]
   qty: number
   barcode: string
@@ -50,11 +72,31 @@ const ITEM_ICONS = {
   barcode: BarcodeIcon,
 }
 
-// Per docs/scanning-grammar.md, a category (like a tag) only ever comes
-// into being as part of creating/editing an item -- there's no standalone
-// "manage categories" entry point. This page has no item-creation flow
-// yet, so the list is just a fixed seed for now rather than editable here.
-const CATEGORIES = ['Лекарства', 'Пайка', 'Монтажное', 'Дроновое', 'Еда', 'Гигиена', 'Авто', 'Разное']
+// A category (like a tag) only ever comes into being from an item's card
+// -- there's no standalone "manage categories" screen. This is the seed
+// tree; the detail card can add to it.
+const SEED_CATEGORIES: CategoryNode[] = [
+  { id: 'med', name: 'Лекарства', parentId: null },
+  { id: 'med-first-aid', name: 'Первая помощь', parentId: 'med' },
+  { id: 'solder', name: 'Пайка', parentId: null },
+  { id: 'mount', name: 'Монтажное', parentId: null },
+  { id: 'mount-electric', name: 'Электрика', parentId: 'mount' },
+  { id: 'mount-light', name: 'Освещение', parentId: 'mount-electric' },
+  { id: 'mount-fasteners', name: 'Крепёж', parentId: 'mount' },
+  { id: 'drone', name: 'Дроновое', parentId: null },
+  { id: 'drone-power', name: 'Питание', parentId: 'drone' },
+  { id: 'food', name: 'Еда', parentId: null },
+  { id: 'food-canned', name: 'Консервы', parentId: 'food' },
+  { id: 'food-grains', name: 'Крупы', parentId: 'food' },
+  { id: 'hygiene', name: 'Гигиена', parentId: null },
+  { id: 'hygiene-chem', name: 'Бытовая химия', parentId: 'hygiene' },
+  { id: 'hygiene-textile', name: 'Текстиль', parentId: 'hygiene' },
+  { id: 'auto', name: 'Авто', parentId: null },
+  { id: 'auto-tires', name: 'Шины', parentId: 'auto' },
+  { id: 'auto-chem', name: 'Автохимия', parentId: 'auto' },
+  { id: 'auto-accessories', name: 'Аксессуары', parentId: 'auto' },
+  { id: 'misc', name: 'Разное', parentId: null },
+]
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'По названию' },
@@ -75,52 +117,100 @@ const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
 // scale: one segment per unit, full at this many.
 const STOCK_METER_SEGMENTS = 8
 
-// One muted hue per category, picked to sit well on both themes' warm
-// surfaces. Used for fills (spine, meter, tints), never as text color.
+// One muted hue per top-level category (a whole branch shares it), picked
+// to sit well on both themes' warm surfaces. Used for fills (spine, meter,
+// tints), never as text color.
 const CATEGORY_HUES: Record<string, string> = {
-  Лекарства: '#df7a6c',
-  Пайка: '#c27ab8',
-  Монтажное: '#d9a24e',
-  Дроновое: '#a484d8',
-  Еда: '#8fb35a',
-  Гигиена: '#4fb0a5',
-  Авто: '#6f95d6',
-  Разное: '#9a8f80',
+  med: '#df7a6c',
+  solder: '#c27ab8',
+  mount: '#d9a24e',
+  drone: '#a484d8',
+  food: '#8fb35a',
+  hygiene: '#4fb0a5',
+  auto: '#6f95d6',
+  misc: '#9a8f80',
 }
 
-// Categories are created from item cards (see CATEGORIES), so new ones
-// won't be in the map above -- they get a stable hue from their name.
-const FALLBACK_HUES = ['#d98a5a', '#5fa3c9', '#b7a24a', '#8b9bd9', '#c97f95', '#6fb58a']
+const UNCATEGORIZED_HUE = '#9a8f80'
 
-function categoryHue(category: string): string {
-  const known = CATEGORY_HUES[category]
-  if (known) return known
+// Top-level categories created from a card, and tags, get a stable hue
+// from their name. Wide enough that a handful of tags on one item rarely
+// share a color.
+const FALLBACK_HUES = [
+  '#d98a5a',
+  '#5fa3c9',
+  '#b7a24a',
+  '#8b9bd9',
+  '#c97f95',
+  '#6fb58a',
+  '#e0b85c',
+  '#9c7fd0',
+  '#58b6b0',
+  '#d4736f',
+  '#8fae4f',
+  '#c98ac2',
+]
+
+function hashHue(name: string): string {
   let hash = 0
-  for (const ch of category) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0
   return FALLBACK_HUES[Math.abs(hash) % FALLBACK_HUES.length]
 }
 
-function categoryStyle(item: CatalogItem): CSSProperties {
-  return { '--cat': categoryHue(item.category) } as CSSProperties
+// Root first, `id` last.
+function categoryChain(index: CategoryIndex, id: string): CategoryNode[] {
+  const chain: CategoryNode[] = []
+  for (let node = index.get(id); node; node = node.parentId ? index.get(node.parentId) : undefined) {
+    chain.unshift(node)
+  }
+  return chain
 }
+
+function categoryPathLabel(index: CategoryIndex, id: string): string {
+  return categoryChain(index, id)
+    .map((node) => node.name)
+    .join(' › ')
+}
+
+function categoryRootHue(index: CategoryIndex, id: string): string {
+  const root = categoryChain(index, id)[0]
+  if (!root) return UNCATEGORIZED_HUE
+  return CATEGORY_HUES[root.id] ?? hashHue(root.name)
+}
+
+// What a card shows as "the" category: the primary (first) one's own name,
+// with its full path in the tooltip.
+function primaryCategory(index: CategoryIndex, item: CatalogItem): { name: string; path: string; hue: string } | null {
+  const id = item.categoryIds.find((c) => index.has(c))
+  if (!id) return null
+  return { name: index.get(id)!.name, path: categoryPathLabel(index, id), hue: categoryRootHue(index, id) }
+}
+
+function categoryStyle(index: CategoryIndex, item: CatalogItem): CSSProperties {
+  return { '--cat': primaryCategory(index, item)?.hue ?? UNCATEGORIZED_HUE } as CSSProperties
+}
+
+// Cards read the category tree from here rather than having it threaded
+// through every view's props.
+const CategoryIndexContext = createContext<CategoryIndex>(new Map())
 
 function photoUrl(id: string, width: number): string {
   return `https://images.unsplash.com/photo-${id}?w=${width}&q=70&auto=format&fit=crop`
 }
 
 const ITEMS: CatalogItem[] = [
-  { id: 1, name: 'Консервированные томаты', category: 'Еда', location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar', photo: '1612204103209-fb81a3384c78' },
-  { id: 2, name: 'Туалетная бумага', category: 'Гигиена', location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box', photo: '1584556812952-905ffd0c611a' },
-  { id: 3, name: 'Аптечка первой помощи', category: 'Лекарства', location: ['Прихожая', 'Верхняя полка'], qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box', photo: '1563260324-5ebeedc8af7c' },
-  { id: 4, name: 'Зимняя резина, комплект', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag', photo: '1571335746824-742511d49bce' },
-  { id: 5, name: 'Крупа гречневая', category: 'Еда', location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar', photo: '1719060038791-012d4a471d91' },
-  { id: 6, name: 'Лампочки LED E27', category: 'Монтажное', location: ['Кладовая', 'Ящик 3'], qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box', photo: '1552862750-746b8f6f7f25' },
-  { id: 7, name: 'Моторное масло 5W-30', category: 'Авто', location: ['Гараж', 'Стеллаж B'], qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar', photo: '1590227763209-821c686b932f' },
-  { id: 8, name: 'Стиральный порошок', category: 'Гигиена', location: ['Балкон', 'Шкаф'], qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box', photo: '1582735689369-4fe89db7114c' },
-  { id: 9, name: 'Батарейки АА', category: 'Дроновое', location: ['Кухня', 'Ящик стола'], qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag', photo: '1576834975354-ee694be1f0d1' },
-  { id: 10, name: 'Консервы тунец', category: 'Еда', location: ['Кладовая', 'Полка 2'], qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar', photo: '1590769383363-5681e57ff10f' },
-  { id: 11, name: 'Автомобильные щётки', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag', photo: '1508786250378-b165238d6e8b' },
-  { id: 12, name: 'Полотенца банные', category: 'Гигиена', location: ['Ванная', 'Верхняя полка'], qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box', photo: '1523471826770-c437b4636fe6' },
+  { id: 1, name: 'Консервированные томаты', categoryIds: ['food-canned'], location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar', photo: '1612204103209-fb81a3384c78' },
+  { id: 2, name: 'Туалетная бумага', categoryIds: ['hygiene'], location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box', photo: '1584556812952-905ffd0c611a' },
+  { id: 3, name: 'Аптечка первой помощи', categoryIds: ['med-first-aid'], location: ['Прихожая', 'Верхняя полка'], qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box', photo: '1563260324-5ebeedc8af7c' },
+  { id: 4, name: 'Зимняя резина, комплект', categoryIds: ['auto-tires'], location: ['Гараж', 'Стеллаж A'], qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag', photo: '1571335746824-742511d49bce' },
+  { id: 5, name: 'Крупа гречневая', categoryIds: ['food-grains'], location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar', photo: '1719060038791-012d4a471d91' },
+  { id: 6, name: 'Лампочки LED E27', categoryIds: ['mount-light'], location: ['Кладовая', 'Ящик 3'], qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box', photo: '1552862750-746b8f6f7f25' },
+  { id: 7, name: 'Моторное масло 5W-30', categoryIds: ['auto-chem'], location: ['Гараж', 'Стеллаж B'], qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar', photo: '1590227763209-821c686b932f' },
+  { id: 8, name: 'Стиральный порошок', categoryIds: ['hygiene-chem'], location: ['Балкон', 'Шкаф'], qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box', photo: '1582735689369-4fe89db7114c' },
+  { id: 9, name: 'Батарейки АА', categoryIds: ['drone-power', 'mount-electric'], location: ['Кухня', 'Ящик стола'], qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag', photo: '1576834975354-ee694be1f0d1' },
+  { id: 10, name: 'Консервы тунец', categoryIds: ['food-canned'], location: ['Кладовая', 'Полка 2'], qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar', photo: '1590769383363-5681e57ff10f' },
+  { id: 11, name: 'Автомобильные щётки', categoryIds: ['auto-accessories'], location: ['Гараж', 'Стеллаж A'], qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag', photo: '1508786250378-b165238d6e8b' },
+  { id: 12, name: 'Полотенца банные', categoryIds: ['hygiene-textile'], location: ['Ванная', 'Верхняя полка'], qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box', photo: '1523471826770-c437b4636fe6' },
 ]
 
 function locationPath(item: CatalogItem): string {
@@ -257,13 +347,21 @@ function boost(score: number, amount: number): number {
   return score === -1 ? -1 : score + amount
 }
 
-function scoreItem(item: CatalogItem, field: SearchField, text: string): number {
+// Every level of every category the item is in -- "#cat: авто" should
+// find an item filed under "Авто › Шины".
+function itemCategoryNames(index: CategoryIndex, item: CatalogItem): string[] {
+  return [...new Set(item.categoryIds.flatMap((id) => categoryChain(index, id).map((node) => node.name)))]
+}
+
+function scoreItem(item: CatalogItem, field: SearchField, text: string, index: CategoryIndex): number {
   if (!text) return 0
+  const categoryScore = () =>
+    itemCategoryNames(index, item).reduce((best, name) => Math.max(best, fuzzyScore(text, name)), -1)
   if (field === 'tags') {
     return item.tags.reduce((best, tag) => Math.max(best, fuzzyScore(text, tag)), -1)
   }
   if (field === 'category') {
-    return fuzzyScore(text, item.category)
+    return categoryScore()
   }
   if (field === 'barcode') {
     return fuzzyScore(text, item.barcode)
@@ -271,7 +369,7 @@ function scoreItem(item: CatalogItem, field: SearchField, text: string): number 
   const candidates = [
     boost(fuzzyScore(text, item.name), 300),
     item.barcode.includes(text) ? 250 : -1,
-    fuzzyScore(text, item.category),
+    categoryScore(),
     boost(fuzzyScore(text, locationPath(item)), -50),
     ...item.tags.map((tag) => fuzzyScore(text, tag)),
   ]
@@ -417,10 +515,11 @@ function StockLine({ item }: { item: CatalogItem }) {
 
 // "ЯЧ" label + path, with the cell itself in bold and always visible --
 // the parent rooms/shelves are what give way (ellipsis) when it's long.
-function CellLabel({ item }: { item: CatalogItem }) {
+// `full` wraps the whole path instead of truncating it (detail card).
+function CellLabel({ item, full = false }: { item: CatalogItem; full?: boolean }) {
   const parents = locationParents(item)
   return (
-    <p className="cell-label" title={locationPath(item)}>
+    <p className={`cell-label ${full ? 'cell-label-full' : ''}`} title={locationPath(item)}>
       <span className="cell-label-tag">ЯЧ</span>
       <span className="cell-label-path">
         {parents && <span className="cell-label-parents">{parents} ›&nbsp;</span>}
@@ -437,17 +536,23 @@ function isLowStock(item: CatalogItem): boolean {
 // The catalog's main card, styled as a warehouse tag: photo on top,
 // category-colored stock meter and a big faded qty numeral in the body,
 // and a tear-off stub with the item's real EAN-13 barcode. `lg` is the
-// roomier variant for the large view, the search best match and the
-// detail modal (adds the tags). At <=860px the grid view restyles this
-// same markup into a compact square tile (see .view-grid in the CSS), which
-// is what .item-tile-meta is for.
+// roomier variant for the large view and the search best match (adds the
+// tags). At <=860px the grid view restyles this same markup into a compact
+// square tile (see .view-grid in the CSS), which is what .item-tile-meta
+// is for.
 function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | 'lg' }) {
+  const index = useContext(CategoryIndexContext)
+  const category = primaryCategory(index, item)
   const low = isLowStock(item)
   return (
-    <article className={`tag-card tag-card-${size} ${low ? 'is-low' : ''}`} style={categoryStyle(item)}>
+    <article className={`tag-card tag-card-${size} ${low ? 'is-low' : ''}`} style={categoryStyle(index, item)}>
       <div className="tag-card-photo">
         <ItemPhoto item={item} width={size === 'lg' ? 520 : 360} />
-        <span className="tag-card-category">{item.category}</span>
+        {category && (
+          <span className="tag-card-category" title={category.path}>
+            {category.name}
+          </span>
+        )}
         {low && <span className="tag-card-low">Заканчивается</span>}
       </div>
       <div className="tag-card-body">
@@ -485,17 +590,23 @@ function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | '
 // category, cell and stock, then the barcode stub behind a vertical
 // perforation (desktop only) and the info button.
 function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: (item: CatalogItem) => void }) {
+  const index = useContext(CategoryIndexContext)
+  const category = primaryCategory(index, item)
   const low = isLowStock(item)
   const topTags = item.tags.slice(0, 3).join(', ')
   return (
-    <article className={`item-row ${low ? 'is-low' : ''}`} style={categoryStyle(item)}>
+    <article className={`item-row ${low ? 'is-low' : ''}`} style={categoryStyle(index, item)}>
       <div className="item-row-photo">
         <ItemPhoto item={item} width={180} />
       </div>
       <div className="item-row-body">
         <div className="item-row-heading">
           <h3>{item.name}</h3>
-          <span className="item-row-category">{item.category}</span>
+          {category && (
+            <span className="item-row-category" title={category.path}>
+              {category.name}
+            </span>
+          )}
         </div>
         <CellLabel item={item} />
         <div className="item-row-stock">
@@ -516,6 +627,542 @@ function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: 
         <InfoIcon />
       </button>
     </article>
+  )
+}
+
+// ---------- item detail card ----------
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12.5l4.5 4.5L19 7" />
+    </svg>
+  )
+}
+
+const MAX_TAG_LENGTH = 32
+const MAX_CATEGORY_NAME_LENGTH = 40
+
+function normalizeTag(raw: string): string {
+  return raw.replace(/^#+/, '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, MAX_TAG_LENGTH)
+}
+
+// A one-shot text input for naming something new: Enter or blur with text
+// submits, Escape or blur while empty cancels. Escape doesn't reach the
+// modal, so it only closes this input, not the whole card. `viaKeyboard`
+// tells the caller whether to put focus back on its trigger (it shouldn't
+// when the input closed because the user clicked something else).
+function InlineCreate({
+  placeholder,
+  maxLength,
+  onSubmit,
+  onCancel,
+}: {
+  placeholder: string
+  maxLength: number
+  onSubmit: (value: string, viaKeyboard: boolean) => void
+  onCancel: (viaKeyboard: boolean) => void
+}) {
+  const [value, setValue] = useState('')
+  // Submitting unmounts the input, and some browsers fire blur on removal
+  // -- without this that would submit (or cancel) a second time.
+  const doneRef = useRef(false)
+  function finish(submit: boolean, viaKeyboard: boolean) {
+    if (doneRef.current) return
+    doneRef.current = true
+    const trimmed = value.trim()
+    if (submit && trimmed) onSubmit(trimmed, viaKeyboard)
+    else onCancel(viaKeyboard)
+  }
+  return (
+    <input
+      className="inline-create"
+      autoFocus
+      value={value}
+      maxLength={maxLength}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          finish(true, true)
+        } else if (e.key === 'Escape') {
+          e.stopPropagation()
+          finish(false, true)
+        }
+      }}
+      onBlur={() => finish(true, false)}
+    />
+  )
+}
+
+// Checkbox tree of every category. Any node can be ticked (an item can sit
+// in several categories, at any depth), and every level ends in a "+" row
+// that creates a category right there -- a new top-level one at the root,
+// a subcategory inside an expanded node. Leaves can be expanded too, just
+// to reach their "+" row.
+function CategoryPicker({
+  categories,
+  selectedIds,
+  onToggle,
+  onCreate,
+}: {
+  categories: CategoryNode[]
+  selectedIds: string[]
+  onToggle: (id: string) => void
+  onCreate: (name: string, parentId: string | null) => void
+}) {
+  const index = useContext(CategoryIndexContext)
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string | null, CategoryNode[]>()
+    for (const node of categories) {
+      const siblings = map.get(node.parentId) ?? []
+      siblings.push(node)
+      map.set(node.parentId, siblings)
+    }
+    return map
+  }, [categories])
+  // Opens onto the item's current categories.
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const open = new Set<string>()
+    for (const id of selectedIds) for (const node of categoryChain(index, id).slice(0, -1)) open.add(node.id)
+    return open
+  })
+  // Which level's "+" row is currently a text input: a node id, null for
+  // the root level, undefined for none.
+  const [addingTo, setAddingTo] = useState<string | null | undefined>(undefined)
+  // The level whose "+" button should take focus as it reappears (after
+  // the input closed from the keyboard). Consumed by the button's ref on
+  // mount, so it doesn't grab focus again if it remounts later.
+  const refocusAddForRef = useRef<string | null | undefined>(undefined)
+
+  function stopAdding(parentId: string | null, viaKeyboard: boolean) {
+    setAddingTo(undefined)
+    if (viaKeyboard) refocusAddForRef.current = parentId
+  }
+
+  function focusIfRequested(el: HTMLButtonElement | null, parentId: string | null) {
+    if (el && refocusAddForRef.current === parentId) {
+      refocusAddForRef.current = undefined
+      el.focus()
+    }
+  }
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function renderLevel(parentId: string | null, depth: number) {
+    const nodes = childrenByParent.get(parentId) ?? []
+    const depthStyle = { '--depth': depth } as CSSProperties
+    return (
+      <ul className="cat-tree-level">
+        {nodes.map((node) => {
+          const childCount = childrenByParent.get(node.id)?.length ?? 0
+          const open = expanded.has(node.id)
+          return (
+            <li key={node.id}>
+              <div className="cat-tree-row" style={depthStyle}>
+                <button
+                  type="button"
+                  className={`cat-tree-toggle ${open ? 'is-open' : ''} ${childCount ? '' : 'is-leaf'}`}
+                  aria-expanded={open}
+                  aria-label={`${open ? 'Свернуть' : 'Развернуть'}: ${node.name}`}
+                  onClick={() => toggleExpanded(node.id)}
+                >
+                  <ChevronIcon />
+                </button>
+                <label className="cat-tree-label">
+                  <input type="checkbox" checked={selectedIds.includes(node.id)} onChange={() => onToggle(node.id)} />
+                  {depth === 0 && (
+                    <span
+                      className="cat-tree-dot"
+                      style={{ background: categoryRootHue(index, node.id) }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="cat-tree-name">{node.name}</span>
+                  {childCount > 0 && <span className="cat-tree-count">{childCount}</span>}
+                </label>
+              </div>
+              {open && renderLevel(node.id, depth + 1)}
+            </li>
+          )
+        })}
+        <li>
+          <div className="cat-tree-row" style={depthStyle}>
+            {addingTo === parentId ? (
+              <InlineCreate
+                placeholder={parentId ? `Подкатегория в «${index.get(parentId)?.name}»` : 'Новая категория'}
+                maxLength={MAX_CATEGORY_NAME_LENGTH}
+                onSubmit={(name, viaKeyboard) => {
+                  onCreate(name, parentId)
+                  stopAdding(parentId, viaKeyboard)
+                }}
+                onCancel={(viaKeyboard) => stopAdding(parentId, viaKeyboard)}
+              />
+            ) : (
+              <button
+                type="button"
+                className="cat-tree-add"
+                ref={(el) => focusIfRequested(el, parentId)}
+                onClick={() => setAddingTo(parentId)}
+              >
+                <PlusIcon />
+                {parentId ? 'Подкатегория' : 'Новая категория'}
+              </button>
+            )}
+          </div>
+        </li>
+      </ul>
+    )
+  }
+
+  return <div className="cat-tree">{renderLevel(null, 0)}</div>
+}
+
+// Discord-role-style tag list: each tag is a pill with a colored dot that
+// turns into a remove button on hover/focus, and a "+" at the end opens an
+// input with suggestions from every tag already in use. Enter adds what's
+// typed (or the highlighted suggestion) and keeps the input open for the
+// next one; Enter on an empty input or Escape closes it, Backspace on an
+// empty input drops the last tag.
+function TagEditor({
+  tags,
+  knownTags,
+  onChange,
+}: {
+  tags: string[]
+  knownTags: string[]
+  onChange: (tags: string[]) => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [text, setText] = useState('')
+  const [active, setActive] = useState(-1)
+  // Put focus back on "+" as it reappears after a keyboard close (see the
+  // same pattern in CategoryPicker).
+  const refocusAddRef = useRef(false)
+  const query = normalizeTag(text)
+  const suggestions = knownTags.filter((tag) => !tags.includes(tag) && (!query || tag.includes(query))).slice(0, 6)
+
+  function add(raw: string) {
+    const tag = normalizeTag(raw)
+    if (tag && !tags.includes(tag)) onChange([...tags, tag])
+    setText('')
+    setActive(-1)
+  }
+
+  // Closing unmounts the focused input, and some browsers fire blur on
+  // removal -- without this, that blur would still add whatever Escape
+  // meant to discard.
+  const closingRef = useRef(false)
+
+  function open() {
+    closingRef.current = false
+    setAdding(true)
+  }
+
+  function close() {
+    closingRef.current = true
+    setAdding(false)
+    setText('')
+    setActive(-1)
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (active < 0 && !text.trim()) {
+        close()
+        refocusAddRef.current = true
+      } else {
+        add(active >= 0 ? suggestions[active] : text)
+      }
+    } else if (e.key === 'Escape') {
+      e.stopPropagation()
+      close()
+      refocusAddRef.current = true
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActive((i) => Math.min(i + 1, suggestions.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActive((i) => Math.max(i - 1, -1))
+    } else if (e.key === 'Backspace' && !text && tags.length) {
+      onChange(tags.slice(0, -1))
+    }
+  }
+
+  return (
+    <div className="tag-editor">
+      {tags.map((tag) => (
+        <span key={tag} className="tag-chip" style={{ '--tag': hashHue(tag) } as CSSProperties}>
+          <button
+            type="button"
+            className="tag-chip-remove"
+            aria-label={`Убрать тег «${tag}»`}
+            onClick={() => onChange(tags.filter((t) => t !== tag))}
+          >
+            <CloseIcon />
+          </button>
+          {tag}
+        </span>
+      ))}
+      {adding ? (
+        <div className="tag-input-wrap">
+          <input
+            className="tag-input"
+            autoFocus
+            value={text}
+            maxLength={MAX_TAG_LENGTH}
+            placeholder="Новый тег"
+            aria-label="Новый тег"
+            onChange={(e) => {
+              setText(e.target.value)
+              setActive(-1)
+            }}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              if (closingRef.current) return
+              if (text.trim()) add(text)
+              close()
+            }}
+          />
+          {suggestions.length > 0 && (
+            <ul className="tag-suggest" role="listbox" aria-label="Существующие теги">
+              {suggestions.map((tag, i) => (
+                <li
+                  key={tag}
+                  role="option"
+                  aria-selected={i === active}
+                  className={i === active ? 'is-active' : undefined}
+                  // mousedown, not click: click would come after the
+                  // input's blur has already closed the list.
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    add(tag)
+                  }}
+                >
+                  <span className="tag-suggest-dot" style={{ background: hashHue(tag) }} aria-hidden="true" />
+                  {tag}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="tag-add"
+          aria-label="Добавить тег"
+          ref={(el) => {
+            if (el && refocusAddRef.current) {
+              refocusAddRef.current = false
+              el.focus()
+            }
+          }}
+          onClick={open}
+        >
+          <PlusIcon />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// What opens from a search result (or a list row's info button): the
+// item's full "passport" -- photo, name, the whole cell address, qty and
+// stock, categories and tags (both editable here, the only place either
+// gets created), and the code on a tear-off stub like the cards'.
+function ItemDetailCard({
+  item,
+  categories,
+  knownTags,
+  onChange,
+  onCreateCategory,
+  onClose,
+}: {
+  item: CatalogItem
+  categories: CategoryNode[]
+  knownTags: string[]
+  onChange: (patch: Partial<Pick<CatalogItem, 'categoryIds' | 'tags'>>) => void
+  onCreateCategory: (name: string, parentId: string | null) => string
+  onClose: () => void
+}) {
+  const index = useContext(CategoryIndexContext)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const low = isLowStock(item)
+  const itemCategoryIds = item.categoryIds.filter((id) => index.has(id))
+
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [copied])
+
+  function toggleCategory(id: string) {
+    onChange({
+      categoryIds: itemCategoryIds.includes(id)
+        ? itemCategoryIds.filter((c) => c !== id)
+        : [...itemCategoryIds, id],
+    })
+  }
+
+  function createCategory(name: string, parentId: string | null) {
+    const id = onCreateCategory(name, parentId)
+    if (!itemCategoryIds.includes(id)) onChange({ categoryIds: [...itemCategoryIds, id] })
+  }
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(item.barcode)
+      setCopied(true)
+    } catch {
+      // Clipboard can be unavailable (permissions, insecure origin) -- the
+      // code is on screen to copy by hand either way.
+    }
+  }
+
+  return (
+    <div className={`detail-card ${low ? 'is-low' : ''}`} style={categoryStyle(index, item)}>
+      <div className="detail-photo">
+        <ItemPhoto item={item} width={640} />
+        {low && <span className="tag-card-low detail-low">Заканчивается</span>}
+        <button type="button" className="detail-close" onClick={onClose} aria-label="Закрыть">
+          <CloseIcon />
+        </button>
+      </div>
+
+      <div className="detail-body">
+        <h2 className="detail-title" id="detail-title">
+          {item.name}
+        </h2>
+
+        <div className="detail-facts">
+          <section className="detail-fact">
+            <h3 className="detail-label">Ячейка</h3>
+            <CellLabel item={item} full />
+          </section>
+          <section className="detail-fact detail-fact-qty">
+            <h3 className="detail-label">Количество</h3>
+            <p className="detail-qty">
+              <span className="detail-qty-num">{item.qty}</span>
+              <span className="detail-qty-unit">шт.</span>
+            </p>
+            <StockMeter qty={item.qty} />
+          </section>
+        </div>
+
+        <section className="detail-section">
+          <div className="detail-section-head">
+            <h3 className="detail-label">Категории</h3>
+            <button
+              type="button"
+              className="detail-link"
+              aria-expanded={pickerOpen}
+              onClick={() => setPickerOpen((v) => !v)}
+            >
+              {pickerOpen ? 'Готово' : 'Изменить'}
+            </button>
+          </div>
+          {itemCategoryIds.length > 0 ? (
+            <ul className="detail-chips">
+              {itemCategoryIds.map((id, i) => {
+                const chain = categoryChain(index, id)
+                const leaf = chain[chain.length - 1]
+                return (
+                  <li
+                    key={id}
+                    className={`category-chip ${i === 0 ? 'is-primary' : ''}`}
+                    title={i === 0 ? 'Основная категория — задаёт цвет карточки' : undefined}
+                  >
+                    <span className="category-chip-dot" style={{ background: categoryRootHue(index, id) }} />
+                    <span className="category-chip-path">
+                      {chain.length > 1 && (
+                        <span className="category-chip-parents">
+                          {chain
+                            .slice(0, -1)
+                            .map((node) => node.name)
+                            .join(' › ')}{' '}
+                          ›{' '}
+                        </span>
+                      )}
+                      <b>{leaf.name}</b>
+                    </span>
+                    <button
+                      type="button"
+                      className="category-chip-remove"
+                      aria-label={`Убрать категорию «${leaf.name}»`}
+                      onClick={() => toggleCategory(id)}
+                    >
+                      <CloseIcon />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="detail-empty">Без категории</p>
+          )}
+          {pickerOpen && (
+            <CategoryPicker
+              categories={categories}
+              selectedIds={itemCategoryIds}
+              onToggle={toggleCategory}
+              onCreate={createCategory}
+            />
+          )}
+        </section>
+
+        <section className="detail-section">
+          <h3 className="detail-label">Теги</h3>
+          <TagEditor tags={item.tags} knownTags={knownTags} onChange={(tags) => onChange({ tags })} />
+        </section>
+      </div>
+
+      <div className="detail-stub">
+        <div className="detail-section-head">
+          <h3 className="detail-label">Код</h3>
+          <button type="button" className="detail-link detail-copy" onClick={copyCode}>
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? 'Скопировано' : 'Копировать'}
+          </button>
+        </div>
+        <Barcode value={item.barcode} />
+      </div>
+    </div>
   )
 }
 
@@ -586,10 +1233,21 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
     return () => desktop.removeEventListener('change', handleChange)
   }, [])
   const [sort, setSort] = useState<SortKey>('name')
+  // 'Все' or a top-level category's id.
   const [category, setCategory] = useState<string>('Все')
   const [stockFilter, setStockFilter] = useState<FilterKey>('all')
   const [view, setView] = useState<ViewMode>('grid')
-  const [detailItem, setDetailItem] = useState<CatalogItem | null>(null)
+  // Local only for now (see the draft note) -- edits from the detail card
+  // live until reload.
+  const [items, setItems] = useState<CatalogItem[]>(ITEMS)
+  const [categories, setCategories] = useState<CategoryNode[]>(SEED_CATEGORIES)
+  const categoryIndex = useMemo<CategoryIndex>(() => new Map(categories.map((c) => [c.id, c])), [categories])
+  const rootCategories = useMemo(() => categories.filter((c) => c.parentId === null), [categories])
+  const knownTags = useMemo(() => [...new Set(items.flatMap((item) => item.tags))].sort((a, b) => a.localeCompare(b, 'ru')), [items])
+  // An id, not the item itself, so the open card reflects edits made in it.
+  const [detailId, setDetailId] = useState<number | null>(null)
+  const detailItem = detailId === null ? null : items.find((item) => item.id === detailId) ?? null
+  const detailRef = useRef<HTMLDivElement>(null)
   const [detailClosing, setDetailClosing] = useState(false)
   const [iconMorphed, setIconMorphed] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -640,28 +1298,50 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   // morph below), not a filter control. Picking a result opens the item's
   // detail card instead of narrowing the grid underneath, and the grid's
   // own filtering/sorting only ever reads sort/category/stockFilter.
+  // A top-level category in the sidebar matches every item filed anywhere
+  // in its branch.
   const filtered = useMemo(() => {
-    return ITEMS.filter((item) => {
-      const matchesCategory = category === 'Все' || item.category === category
-      const matchesStock =
-        stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= LOW_STOCK_MAX : item.qty > HIGH_STOCK_MIN)
-      return matchesCategory && matchesStock
-    }).sort((a, b) => {
-      if (sort === 'qty') return b.qty - a.qty
-      if (sort === 'location') return locationPath(a).localeCompare(locationPath(b), 'ru')
-      return a.name.localeCompare(b.name, 'ru')
-    })
-  }, [category, stockFilter, sort])
+    return items
+      .filter((item) => {
+        const matchesCategory =
+          category === 'Все' || item.categoryIds.some((id) => categoryChain(categoryIndex, id)[0]?.id === category)
+        const matchesStock =
+          stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= LOW_STOCK_MAX : item.qty > HIGH_STOCK_MIN)
+        return matchesCategory && matchesStock
+      })
+      .sort((a, b) => {
+        if (sort === 'qty') return b.qty - a.qty
+        if (sort === 'location') return locationPath(a).localeCompare(locationPath(b), 'ru')
+        return a.name.localeCompare(b.name, 'ru')
+      })
+  }, [items, categoryIndex, category, stockFilter, sort])
 
   const { field: searchField, text: searchText } = useMemo(() => parseSearch(query), [query])
 
   const searchResults = useMemo(() => {
     if (!searchText) return []
-    return ITEMS.map((item) => ({ item, score: scoreItem(item, searchField, searchText) }))
+    return items
+      .map((item) => ({ item, score: scoreItem(item, searchField, searchText, categoryIndex) }))
       .filter(({ score }) => score > -1)
       .sort((a, b) => b.score - a.score)
       .slice(0, 8)
-  }, [searchField, searchText])
+  }, [items, categoryIndex, searchField, searchText])
+
+  function updateItem(id: number, patch: Partial<CatalogItem>) {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  // Reuses an existing sibling with the same name (case-insensitive)
+  // instead of creating a duplicate next to it.
+  function createCategory(name: string, parentId: string | null): string {
+    const existing = categories.find(
+      (c) => c.parentId === parentId && c.name.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru'),
+    )
+    if (existing) return existing.id
+    const node: CategoryNode = { id: crypto.randomUUID(), name, parentId }
+    setCategories((prev) => [...prev, node])
+    return node.id
+  }
 
   const bestMatch = searchResults[0]?.item
   const restResults = searchResults.slice(1)
@@ -701,7 +1381,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   // and all) for the length of its own closing fade, flashing that in
   // place of the results the user actually just clicked.
   function openDetail(item: CatalogItem) {
-    setDetailItem(item)
+    setDetailClosing(false)
+    setDetailId(item.id)
     closeSearch()
     if (clearQueryTimeoutRef.current) clearTimeout(clearQueryTimeoutRef.current)
     clearQueryTimeoutRef.current = setTimeout(() => setQuery(''), SEARCH_DROPDOWN_CLOSE_MS)
@@ -714,11 +1395,29 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   useEffect(() => {
     if (!detailClosing) return
     const t = setTimeout(() => {
-      setDetailItem(null)
+      setDetailId(null)
       setDetailClosing(false)
     }, 220)
     return () => clearTimeout(t)
   }, [detailClosing])
+
+  // Focus moves into the card so Tab starts from inside it.
+  useEffect(() => {
+    if (detailId !== null) detailRef.current?.focus()
+  }, [detailId])
+
+  // Escape closes the card wherever focus happens to be (including on the
+  // page behind it, once an inner input has closed and dropped focus).
+  // Inputs inside the card that use Escape themselves stop its
+  // propagation, so this only fires when nothing inside claimed it.
+  useEffect(() => {
+    if (detailId === null) return
+    function handleKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape') setDetailClosing(true)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [detailId])
 
   function handleSearchWrapBlur(e: FocusEvent<HTMLDivElement>) {
     const related = e.relatedTarget as Node | null
@@ -749,260 +1448,262 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   }
 
   return (
-    <div className="catalog-page">
-      <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
+    <CategoryIndexContext.Provider value={categoryIndex}>
+      <div className="catalog-page">
+        <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
-      <header className={`catalog-topbar ${searchActive ? 'search-active' : ''}`}>
-        {/* Fixed-width left zone (menu + brand) so its right edge lands on
-         * the same x as .catalog-body's sidebar/main divider below --
-         * see .catalog-topbar-left in CatalogPage.css. Purely visual
-         * symmetry, not an actual layout dependency between the two. On
-         * narrow screens this zone (specifically the brand) collapses away
-         * while search is active instead, to give the search field room. */}
-        <div className="catalog-topbar-left">
-          <button type="button" className="icon-btn menu-btn" aria-label="Меню">
-            <MenuIcon />
-          </button>
+        <header className={`catalog-topbar ${searchActive ? 'search-active' : ''}`}>
+          {/* Fixed-width left zone (menu + brand) so its right edge lands on
+           * the same x as .catalog-body's sidebar/main divider below --
+           * see .catalog-topbar-left in CatalogPage.css. Purely visual
+           * symmetry, not an actual layout dependency between the two. On
+           * narrow screens this zone (specifically the brand) collapses away
+           * while search is active instead, to give the search field room. */}
+          <div className="catalog-topbar-left">
+            <button type="button" className="icon-btn menu-btn" aria-label="Меню">
+              <MenuIcon />
+            </button>
 
-          <div className="catalog-brand">
-            <span className="catalog-brand-word">Storegizer</span>
-            <span className="catalog-brand-tab">каталог</span>
+            <div className="catalog-brand">
+              <span className="catalog-brand-word">Storegizer</span>
+              <span className="catalog-brand-tab">каталог</span>
+            </div>
           </div>
-        </div>
 
-        <div className="catalog-topbar-right">
-          <div className="catalog-search-wrap" ref={searchWrapRef} onBlur={handleSearchWrapBlur}>
-            <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
-              <span className="catalog-search-icon">
-                <span className={`search-icon-face ${!iconMorphed ? 'is-visible' : ''}`}>
-                  <SearchIcon />
+          <div className="catalog-topbar-right">
+            <div className="catalog-search-wrap" ref={searchWrapRef} onBlur={handleSearchWrapBlur}>
+              <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
+                <span className="catalog-search-icon">
+                  <span className={`search-icon-face ${!iconMorphed ? 'is-visible' : ''}`}>
+                    <SearchIcon />
+                  </span>
+                  <span className={`search-icon-face ${iconMorphed ? 'is-visible' : ''}`}>
+                    <TerminalIcon />
+                  </span>
                 </span>
-                <span className={`search-icon-face ${iconMorphed ? 'is-visible' : ''}`}>
-                  <TerminalIcon />
-                </span>
-              </span>
-              <input
-                ref={searchInputRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setSearchFocused(true)}
-                onKeyDown={handleSearchKeyDown}
-                // Short on purpose -- text-overflow:ellipsis doesn't
-                // reliably engage for an <input>'s placeholder/value in
-                // every engine (it didn't here), so a placeholder long
-                // enough to need truncating on a narrow mobile field just
-                // got hard-clipped mid-word instead. The fuller
-                // explanation (prefixes etc.) lives in the dropdown hint
-                // once focused, not the placeholder itself.
-                placeholder="Найти или команда..."
-                type="search"
-              />
-            </label>
+                <input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => setSearchFocused(true)}
+                  onKeyDown={handleSearchKeyDown}
+                  // Short on purpose -- text-overflow:ellipsis doesn't
+                  // reliably engage for an <input>'s placeholder/value in
+                  // every engine (it didn't here), so a placeholder long
+                  // enough to need truncating on a narrow mobile field just
+                  // got hard-clipped mid-word instead. The fuller
+                  // explanation (prefixes etc.) lives in the dropdown hint
+                  // once focused, not the placeholder itself.
+                  placeholder="Найти или команда..."
+                  type="search"
+                />
+              </label>
 
-            {createPortal(
-              <div
-                className={`search-dropdown ${searchActive ? 'is-open' : ''}`}
-                ref={dropdownRef}
-                style={
-                  dropdownRect
-                    ? { top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }
-                    : undefined
-                }
-              >
-              {!searchText ? (
-                <div className="search-hint">
-                  <p>
-                    Универсальная строка поиска — по названию, категории, месту, тегам и штрихкоду.
-                    Не связана со списком ниже: Enter или клик по результату открывает карточку предмета.
-                  </p>
-                  <ul>
-                    <li>
-                      <code>#tags: значение</code> — искать только по тегам
-                    </li>
-                    <li>
-                      <code>#cat: значение</code> — искать только по категории
-                    </li>
-                    <li>
-                      <code>#barcode: значение</code> — искать только по штрихкоду
-                    </li>
-                  </ul>
-                </div>
-              ) : bestMatch ? (
-                <>
-                  <div className="search-section-label">Лучшее совпадение</div>
-                  <button type="button" className="search-best-match" onClick={() => openDetail(bestMatch)}>
-                    <ItemTagCard item={bestMatch} size="lg" />
-                  </button>
-                  {restResults.length > 0 && (
-                    <>
-                      <div className="search-section-label">Ещё найдено</div>
-                      <ul className="search-result-list">
-                        {restResults.map(({ item }) => (
-                          <li
-                            key={item.id}
-                            className="search-result-row"
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openDetail(item)}
-                            onKeyDown={(e) => handleResultKeyDown(e, item)}
-                          >
-                            <span className="search-result-icon" style={categoryStyle(item)}>
-                              <ItemPhoto item={item} width={64} />
-                            </span>
-                            <span className="search-result-name">{item.name}</span>
-                            <span className="search-result-meta">{item.category}</span>
-                            <span className="item-qty">×{item.qty}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </>
-              ) : (
-                <p className="search-empty">Совпадений не найдено.</p>
+              {createPortal(
+                <div
+                  className={`search-dropdown ${searchActive ? 'is-open' : ''}`}
+                  ref={dropdownRef}
+                  style={
+                    dropdownRect
+                      ? { top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }
+                      : undefined
+                  }
+                >
+                {!searchText ? (
+                  <div className="search-hint">
+                    <p>
+                      Универсальная строка поиска — по названию, категории, месту, тегам и штрихкоду.
+                      Не связана со списком ниже: Enter или клик по результату открывает карточку предмета.
+                    </p>
+                    <ul>
+                      <li>
+                        <code>#tags: значение</code> — искать только по тегам
+                      </li>
+                      <li>
+                        <code>#cat: значение</code> — искать только по категории
+                      </li>
+                      <li>
+                        <code>#barcode: значение</code> — искать только по штрихкоду
+                      </li>
+                    </ul>
+                  </div>
+                ) : bestMatch ? (
+                  <>
+                    <div className="search-section-label">Лучшее совпадение</div>
+                    <button type="button" className="search-best-match" onClick={() => openDetail(bestMatch)}>
+                      <ItemTagCard item={bestMatch} size="lg" />
+                    </button>
+                    {restResults.length > 0 && (
+                      <>
+                        <div className="search-section-label">Ещё найдено</div>
+                        <ul className="search-result-list">
+                          {restResults.map(({ item }) => (
+                            <li
+                              key={item.id}
+                              className="search-result-row"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => openDetail(item)}
+                              onKeyDown={(e) => handleResultKeyDown(e, item)}
+                            >
+                              <span className="search-result-icon" style={categoryStyle(categoryIndex, item)}>
+                                <ItemPhoto item={item} width={64} />
+                              </span>
+                              <span className="search-result-name">{item.name}</span>
+                              <span className="search-result-meta">{primaryCategory(categoryIndex, item)?.name}</span>
+                              <span className="item-qty">×{item.qty}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <p className="search-empty">Совпадений не найдено.</p>
+                )}
+                </div>,
+                document.body,
               )}
-              </div>,
-              document.body,
-            )}
-          </div>
-
-          <button
-            type="button"
-            className="icon-btn theme-toggle-btn"
-            onClick={onToggleTheme}
-            aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
-          >
-            {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
-          </button>
-        </div>
-      </header>
-
-      <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
-
-      <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
-        <aside className="catalog-sidebar">
-          {/* Fixed-width inner box -- the outer <aside> is what actually
-           * animates (width on desktop, height on mobile) and clips this
-           * with overflow:hidden, so the panel is revealed/hidden like a
-           * wipe instead of its own contents (radio labels etc.) visibly
-           * reflowing to a narrower width mid-transition. */}
-          <div className="catalog-sidebar-inner">
-            <div className="sidebar-section">
-              <h2>Сортировка</h2>
-              <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
             </div>
 
-            <div className="sidebar-section">
-              <h2>Категории</h2>
-              <RadioGroup
-                name="category"
-                options={[{ key: 'Все', label: 'Все' }, ...CATEGORIES.map((c) => ({ key: c, label: c }))]}
-                value={category}
-                onChange={setCategory}
+            <button
+              type="button"
+              className="icon-btn theme-toggle-btn"
+              onClick={onToggleTheme}
+              aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+            >
+              {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
+            </button>
+          </div>
+        </header>
+
+        <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
+
+        <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+          <aside className="catalog-sidebar">
+            {/* Fixed-width inner box -- the outer <aside> is what actually
+             * animates (width on desktop, height on mobile) and clips this
+             * with overflow:hidden, so the panel is revealed/hidden like a
+             * wipe instead of its own contents (radio labels etc.) visibly
+             * reflowing to a narrower width mid-transition. */}
+            <div className="catalog-sidebar-inner">
+              <div className="sidebar-section">
+                <h2>Сортировка</h2>
+                <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
+              </div>
+
+              <div className="sidebar-section">
+                <h2>Категории</h2>
+                <RadioGroup
+                  name="category"
+                  options={[{ key: 'Все', label: 'Все' }, ...rootCategories.map((c) => ({ key: c.id, label: c.name }))]}
+                  value={category}
+                  onChange={setCategory}
+                />
+              </div>
+
+              <div className="sidebar-section">
+                <h2>Фильтры</h2>
+                <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
+              </div>
+            </div>
+          </aside>
+
+          <main className="catalog-main">
+            <div className="catalog-main-toolbar">
+              <span className="catalog-count">{filtered.length} предметов</span>
+
+              <div className="view-switch" role="radiogroup" aria-label="Вид отображения">
+                <button
+                  type="button"
+                  className={view === 'list' ? 'active' : ''}
+                  aria-pressed={view === 'list'}
+                  aria-label="Список"
+                  onClick={() => setView('list')}
+                >
+                  <ListViewIcon />
+                </button>
+                <button
+                  type="button"
+                  className={view === 'grid' ? 'active' : ''}
+                  aria-pressed={view === 'grid'}
+                  aria-label="Сетка"
+                  onClick={() => setView('grid')}
+                >
+                  <GridViewIcon />
+                </button>
+                <button
+                  type="button"
+                  className={view === 'large' ? 'active' : ''}
+                  aria-pressed={view === 'large'}
+                  aria-label="Крупные карточки"
+                  onClick={() => setView('large')}
+                >
+                  <LargeViewIcon />
+                </button>
+              </div>
+            </div>
+
+            <div className="catalog-scroll">
+              {filtered.length === 0 ? (
+                <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
+              ) : (
+                <div key={view} className={`catalog-items view-${view}`}>
+                  {filtered.map((item) => {
+                    if (view === 'large') return <ItemTagCard key={item.id} item={item} size="lg" />
+                    if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
+                    return <ItemTagCard key={item.id} item={item} />
+                  })}
+                </div>
+              )}
+            </div>
+          </main>
+        </div>
+
+        {/* Mobile only (see the <=860px CSS): the inline collapsible sidebar
+         * becomes a bottom sheet instead, opened via this floating button
+         * rather than the desktop's divider-straddling chevron. */}
+        <button
+          type="button"
+          className="mobile-filters-fab"
+          aria-label={sidebarOpen ? 'Скрыть фильтры' : 'Показать фильтры'}
+          aria-pressed={sidebarOpen}
+          onClick={() => setSidebarOpen((v) => !v)}
+        >
+          <FiltersIcon />
+        </button>
+
+        <div
+          className={`mobile-filters-overlay ${sidebarOpen ? 'is-open' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+        />
+
+        {detailItem && (
+          <div
+            className={`item-detail-overlay ${detailClosing ? 'is-closing' : ''}`}
+            onClick={closeDetail}
+          >
+            <div
+              ref={detailRef}
+              className={`item-detail-modal ${detailClosing ? 'is-closing' : ''}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="detail-title"
+              tabIndex={-1}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ItemDetailCard
+                item={detailItem}
+                categories={categories}
+                knownTags={knownTags}
+                onChange={(patch) => updateItem(detailItem.id, patch)}
+                onCreateCategory={createCategory}
+                onClose={closeDetail}
               />
             </div>
-
-            <div className="sidebar-section">
-              <h2>Фильтры</h2>
-              <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
-            </div>
           </div>
-        </aside>
-
-        <main className="catalog-main">
-          <div className="catalog-main-toolbar">
-            <span className="catalog-count">{filtered.length} предметов</span>
-
-            <div className="view-switch" role="radiogroup" aria-label="Вид отображения">
-              <button
-                type="button"
-                className={view === 'list' ? 'active' : ''}
-                aria-pressed={view === 'list'}
-                aria-label="Список"
-                onClick={() => setView('list')}
-              >
-                <ListViewIcon />
-              </button>
-              <button
-                type="button"
-                className={view === 'grid' ? 'active' : ''}
-                aria-pressed={view === 'grid'}
-                aria-label="Сетка"
-                onClick={() => setView('grid')}
-              >
-                <GridViewIcon />
-              </button>
-              <button
-                type="button"
-                className={view === 'large' ? 'active' : ''}
-                aria-pressed={view === 'large'}
-                aria-label="Крупные карточки"
-                onClick={() => setView('large')}
-              >
-                <LargeViewIcon />
-              </button>
-            </div>
-          </div>
-
-          <div className="catalog-scroll">
-            {filtered.length === 0 ? (
-              <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
-            ) : (
-              <div key={view} className={`catalog-items view-${view}`}>
-                {filtered.map((item) => {
-                  if (view === 'large') return <ItemTagCard key={item.id} item={item} size="lg" />
-                  if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
-                  return <ItemTagCard key={item.id} item={item} />
-                })}
-              </div>
-            )}
-          </div>
-        </main>
+        )}
       </div>
-
-      {/* Mobile only (see the <=860px CSS): the inline collapsible sidebar
-       * becomes a bottom sheet instead, opened via this floating button
-       * rather than the desktop's divider-straddling chevron. */}
-      <button
-        type="button"
-        className="mobile-filters-fab"
-        aria-label={sidebarOpen ? 'Скрыть фильтры' : 'Показать фильтры'}
-        aria-pressed={sidebarOpen}
-        onClick={() => setSidebarOpen((v) => !v)}
-      >
-        <FiltersIcon />
-      </button>
-
-      <div
-        className={`mobile-filters-overlay ${sidebarOpen ? 'is-open' : ''}`}
-        onClick={() => setSidebarOpen(false)}
-      />
-
-      {detailItem && (
-        <div
-          className={`item-detail-overlay ${detailClosing ? 'is-closing' : ''}`}
-          onClick={closeDetail}
-        >
-          <div
-            className={`item-detail-modal ${detailClosing ? 'is-closing' : ''}`}
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="item-detail-modal-header">
-              <span className="search-section-label">Карточка предмета</span>
-              <button type="button" className="item-detail-close" onClick={closeDetail} aria-label="Закрыть">
-                <CloseIcon />
-              </button>
-            </div>
-            <ItemTagCard item={detailItem} size="lg" />
-            <p className="item-detail-note">
-              Плейсхолдер — полноценная карточка предмета (редактирование, история операций и т.д.) будет
-              реализована позже.
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
+    </CategoryIndexContext.Provider>
   )
 }
