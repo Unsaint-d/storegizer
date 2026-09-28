@@ -1037,14 +1037,107 @@
 }
 
 /* The category-colored band along the bottom of the photo is the card's
- * main color cue. */
+ * main color cue. Its own rounded top corners and overflow (not just the
+ * card's) matter for the photo's view transition into the detail card:
+ * a named element is snapshotted without its ancestors' clipping. */
 .tag-card-photo {
   position: relative;
   flex-shrink: 0;
   height: 128px;
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
   background: var(--surface);
   border-bottom: 3px solid var(--cat);
   transition: background-color 0.3s ease;
+}
+
+/* ---------- clickable cards ---------- */
+
+/* The card's name as a button (see CardLink): looks like the plain
+ * heading it replaces; the focus ring goes on the whole card instead. */
+.card-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.card-link:focus-visible {
+  outline: none;
+}
+
+.tag-card.is-clickable,
+.item-row.is-clickable {
+  cursor: pointer;
+}
+
+/* Outline rather than box-shadow for these rings: outlines paint over
+ * the card's content, so the ring shows along the photo too instead of
+ * disappearing behind it. */
+.tag-card.is-clickable:hover,
+.item-row.is-clickable:hover {
+  outline: 1.5px solid color-mix(in srgb, var(--cat) 70%, transparent);
+  outline-offset: -1.5px;
+}
+
+.tag-card.is-clickable:has(.card-link:focus-visible),
+.item-row.is-clickable:has(.card-link:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tag-card.is-clickable:active {
+  transform: translateY(-1px) scale(0.985);
+}
+
+.item-row.is-clickable:active {
+  transform: translateX(1px) scale(0.995);
+}
+
+.tag-card.is-clickable .item-photo,
+.item-row.is-clickable .item-photo {
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.tag-card.is-clickable:hover .item-photo,
+.item-row.is-clickable:hover .item-photo {
+  transform: scale(1.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-card.is-clickable .item-photo,
+  .item-row.is-clickable .item-photo {
+    transition: none;
+  }
+
+  .tag-card.is-clickable:hover .item-photo,
+  .item-row.is-clickable:hover .item-photo {
+    transform: none;
+  }
+}
+
+/* The photo's flight between a catalog card and the detail card (see
+ * openFromCard). Snapshots fill their box (cover) instead of the default
+ * width-fit, since the card photo and the detail header differ in aspect
+ * ratio. */
+::view-transition-group(detail-photo) {
+  animation-duration: 0.4s;
+  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+::view-transition-old(detail-photo),
+::view-transition-new(detail-photo) {
+  height: 100%;
+  object-fit: cover;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.3s;
 }
 
 .tag-card-lg .tag-card-photo {
@@ -1229,6 +1322,8 @@
   position: relative;
   flex-shrink: 0;
   width: 104px;
+  border-radius: 14px 0 0 14px;
+  overflow: hidden;
   background: var(--surface);
   border-right: 3px solid var(--cat);
   transition: background-color 0.3s ease;
@@ -1379,7 +1474,8 @@
   transition: color 0.2s ease, background-color 0.2s ease, border-color 0.3s ease;
 }
 
-.item-row-info:hover {
+/* Just a cue now (the whole row is the button), lit with the row. */
+.item-row.is-clickable:hover .item-row-info {
   color: var(--ink);
   background: var(--surface);
 }
@@ -1501,12 +1597,17 @@
   flex-direction: column;
 }
 
+/* Named for the view transition from a catalog card's photo; rounded to
+ * the modal's inner corners itself for the same reason as .tag-card-photo. */
 .detail-photo {
   position: relative;
   flex-shrink: 0;
   height: 220px;
+  border-radius: 17px 17px 0 0;
+  overflow: hidden;
   background: var(--surface-2);
   border-bottom: 4px solid var(--cat);
+  view-transition-name: detail-photo;
   transition: background-color 0.3s ease;
 }
 
@@ -2879,6 +2980,7 @@
     position: absolute;
     inset: 0;
     height: auto;
+    border-radius: 12px;
   }
 
   /* Glyph raised so the scrim doesn't cover it. */

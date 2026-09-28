@@ -8,10 +8,11 @@ import {
   type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
 
@@ -678,6 +679,51 @@ function pluralPlaces(n: number): string {
   return 'мест'
 }
 
+// Opens an item's detail card from a catalog card; `card` is the card's
+// element, used to animate its photo into the detail card.
+type OpenItem = (item: CatalogItem, card: HTMLElement) => void
+
+// The view-transition-name the card photo and the detail card's photo
+// share while one morphs into the other (see openFromCard).
+const DETAIL_PHOTO_TRANSITION = 'detail-photo'
+
+function canViewTransition(): boolean {
+  return 'startViewTransition' in document && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function isInCatalogViewport(el: HTMLElement): boolean {
+  const scroller = el.closest('.catalog-scroll')
+  if (!scroller) return false
+  const r = el.getBoundingClientRect()
+  const s = scroller.getBoundingClientRect()
+  return r.bottom > s.top && r.top < s.bottom
+}
+
+function focusCardLink(card: HTMLElement | null) {
+  if (card?.isConnected) card.querySelector<HTMLElement>('.card-link')?.focus({ preventScroll: true })
+}
+
+// A click anywhere on a card opens it -- except one that ends a text
+// selection (dragging over the name or a barcode to copy it). Keyboard
+// users get there through CardLink, a real button whose Enter/Space
+// clicks bubble up to this same handler.
+function cardClickHandler(item: CatalogItem, onOpen: OpenItem) {
+  return (e: ReactMouseEvent<HTMLElement>) => {
+    if (window.getSelection()?.toString()) return
+    onOpen(item, e.currentTarget)
+  }
+}
+
+// The card's name as a button: what Tab lands on and what screen readers
+// announce. No handler of its own -- its click bubbles to the card's.
+function CardLink({ name }: { name: string }) {
+  return (
+    <button type="button" className="card-link">
+      {name}
+    </button>
+  )
+}
+
 // The catalog's main card, styled as a warehouse tag: photo on top,
 // category-colored stock meter and a big faded qty numeral in the body,
 // and a tear-off stub with the item's real EAN-13 barcode. `lg` is the
@@ -685,17 +731,20 @@ function pluralPlaces(n: number): string {
 // tags). At <=860px the grid view restyles this same markup into a compact
 // square tile (see .view-grid in the CSS), which is what .item-tile-meta
 // is for.
-function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | 'lg' }) {
+//
+// With `onOpen`, the whole card opens the item: see cardClickHandler.
+function ItemTagCard({ item, size = 'md', onOpen }: { item: CatalogItem; size?: 'md' | 'lg'; onOpen?: OpenItem }) {
   const index = useContext(CategoryIndexContext)
   const category = primaryCategory(index, item)
   const status = useStockStatus(item)
   const location = mainLocation(item)
   return (
     <article
-      className={`tag-card tag-card-${size} ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''}`}
+      className={`tag-card tag-card-${size} ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''} ${onOpen ? 'is-clickable' : ''}`}
       style={cardStyle(index, item, status)}
+      onClick={onOpen && cardClickHandler(item, onOpen)}
     >
-      <div className="tag-card-photo">
+      <div className="tag-card-photo" data-item-photo="">
         <ItemPhoto item={item} width={size === 'lg' ? 520 : 360} />
         {category && (
           <span className="tag-card-category" title={category.path}>
@@ -708,7 +757,7 @@ function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | '
         <span className="tag-card-watermark" aria-hidden="true">
           {status.qty}
         </span>
-        <h3>{item.name}</h3>
+        <h3>{onOpen ? <CardLink name={item.name} /> : item.name}</h3>
         <CellLabel location={location} more={item.stock.length - 1} />
         <StockLine status={status} />
         {size === 'lg' && item.tags.length > 0 && (
@@ -740,23 +789,27 @@ function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | '
 
 // List view: the same tag language laid out as a row -- photo, name +
 // category, cell and stock, then the barcode stub behind a vertical
-// perforation (desktop only) and the info button.
-function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: (item: CatalogItem) => void }) {
+// perforation (desktop only). The whole row opens the item; the "i" at
+// the end is just its visual cue now, not a separate button.
+function ItemListRow({ item, onOpen }: { item: CatalogItem; onOpen: OpenItem }) {
   const index = useContext(CategoryIndexContext)
   const category = primaryCategory(index, item)
   const status = useStockStatus(item)
   const topTags = item.tags.slice(0, 3).join(', ')
   return (
     <article
-      className={`item-row ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''}`}
+      className={`item-row is-clickable ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''}`}
       style={cardStyle(index, item, status)}
+      onClick={cardClickHandler(item, onOpen)}
     >
-      <div className="item-row-photo">
+      <div className="item-row-photo" data-item-photo="">
         <ItemPhoto item={item} width={180} />
       </div>
       <div className="item-row-body">
         <div className="item-row-heading">
-          <h3>{item.name}</h3>
+          <h3>
+            <CardLink name={item.name} />
+          </h3>
           {category && (
             <span className="item-row-category" title={category.path}>
               {category.name}
@@ -773,14 +826,9 @@ function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: 
       <div className="item-row-stub">
         <Barcode value={item.barcode} />
       </div>
-      <button
-        type="button"
-        className="item-row-info"
-        aria-label={`Подробнее: ${item.name}`}
-        onClick={() => onOpenDetail(item)}
-      >
+      <span className="item-row-info" aria-hidden="true">
         <InfoIcon />
-      </button>
+      </span>
     </article>
   )
 }
@@ -1881,6 +1929,10 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   const [detailId, setDetailId] = useState<number | null>(null)
   const detailItem = detailId === null ? null : items.find((item) => item.id === detailId) ?? null
   const detailRef = useRef<HTMLDivElement>(null)
+  // The catalog card the open detail card came from (null when it came
+  // from search), and where focus should go back once it's closed.
+  const openerRef = useRef<HTMLElement | null>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
   const [detailClosing, setDetailClosing] = useState(false)
   const [iconMorphed, setIconMorphed] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -2022,8 +2074,49 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
     clearQueryTimeoutRef.current = setTimeout(() => setQuery(''), SEARCH_DROPDOWN_CLOSE_MS)
   }
 
+  // Opening from a catalog card morphs the card's photo into the detail
+  // card's header (a View Transition: the photo is the one named element,
+  // everything else cross-fades), and closing flies it back. The name has
+  // to be unique in each snapshot, so it's moved between the card photo and
+  // the detail photo (which carries it in CSS) inside the update callback.
+  // Falls back to the plain open/close animation where the API is missing
+  // or reduced motion is on.
+  function openFromCard(item: CatalogItem, card: HTMLElement) {
+    openerRef.current = card
+    const photo = card.querySelector<HTMLElement>('[data-item-photo]')
+    if (!photo || !canViewTransition()) {
+      openDetail(item)
+      return
+    }
+    photo.style.viewTransitionName = DETAIL_PHOTO_TRANSITION
+    document.startViewTransition(() => {
+      photo.style.viewTransitionName = ''
+      flushSync(() => openDetail(item))
+    })
+  }
+
   function closeDetail() {
-    setDetailClosing(true)
+    const opener = openerRef.current
+    openerRef.current = null
+    const photo = opener?.isConnected ? opener.querySelector<HTMLElement>('[data-item-photo]') : null
+    // Only fly back to a card that's actually on screen -- one scrolled out
+    // of the list would send the photo off the edge.
+    if (!opener || !photo || !canViewTransition() || !isInCatalogViewport(photo)) {
+      returnFocusRef.current = opener
+      setDetailClosing(true)
+      return
+    }
+    const transition = document.startViewTransition(() => {
+      photo.style.viewTransitionName = DETAIL_PHOTO_TRANSITION
+      flushSync(() => {
+        setDetailId(null)
+        setDetailClosing(false)
+      })
+    })
+    transition.finished.finally(() => {
+      photo.style.viewTransitionName = ''
+      focusCardLink(opener)
+    })
   }
 
   useEffect(() => {
@@ -2031,6 +2124,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
     const t = setTimeout(() => {
       setDetailId(null)
       setDetailClosing(false)
+      // Back to the card it was opened from, not dropped on the page.
+      focusCardLink(returnFocusRef.current)
+      returnFocusRef.current = null
     }, 220)
     return () => clearTimeout(t)
   }, [detailClosing])
@@ -2047,7 +2143,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   useEffect(() => {
     if (detailId === null) return
     function handleKeyDown(e: globalThis.KeyboardEvent) {
-      if (e.key === 'Escape') setDetailClosing(true)
+      // closeDetail only touches refs and state setters, so this render's
+      // copy of it is as good as any later one.
+      if (e.key === 'Escape') closeDetail()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -2287,9 +2385,10 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                 ) : (
                   <div key={view} className={`catalog-items view-${view}`}>
                     {filtered.map((item) => {
-                      if (view === 'large') return <ItemTagCard key={item.id} item={item} size="lg" />
-                      if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
-                      return <ItemTagCard key={item.id} item={item} />
+                      if (view === 'large')
+                        return <ItemTagCard key={item.id} item={item} size="lg" onOpen={openFromCard} />
+                      if (view === 'list') return <ItemListRow key={item.id} item={item} onOpen={openFromCard} />
+                      return <ItemTagCard key={item.id} item={item} onOpen={openFromCard} />
                     })}
                   </div>
                 )}
