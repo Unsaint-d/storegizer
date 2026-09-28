@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
@@ -143,15 +144,30 @@ const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
 
 const STOCK_METER_SEGMENTS = 8
 
-// Swatches offered for a level. Fills only (meter, numeral tint), so each
-// works on both themes.
-const LEVEL_COLORS = [
-  { color: '#e5796b', label: 'Красный' },
-  { color: '#e79a55', label: 'Оранжевый' },
-  { color: '#e6c65c', label: 'Жёлтый' },
-  { color: '#7fb561', label: 'Зелёный' },
-  { color: '#6f9ad6', label: 'Синий' },
-]
+// Starting colors handed to new levels, in order, before falling back to
+// generated ones -- a level can be any color (it's picked freely), these
+// are just sensible defaults that work as fills on both themes.
+const LEVEL_COLOR_SUGGESTIONS = ['#e5796b', '#e79a55', '#e6c65c', '#7fb561', '#6f9ad6', '#a484d8']
+
+function hslToHex(h: number, s: number, l: number): string {
+  const a = s * Math.min(l, 1 - l)
+  const channel = (n: number) => {
+    const k = (n + h / 30) % 12
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return `#${channel(0)}${channel(8)}${channel(4)}`
+}
+
+// First suggestion not already used by the rule, then evenly spread hues
+// (golden angle) at the same muted saturation/lightness.
+function nextLevelColor(levels: StockLevel[]): string {
+  const used = new Set(levels.map((l) => l.color.toLowerCase()))
+  const free = LEVEL_COLOR_SUGGESTIONS.find((c) => !used.has(c))
+  return free ?? hslToHex((levels.length * 137.5) % 360, 0.62, 0.62)
+}
 
 const DEFAULT_STOCK_RULE: GlobalStockRule = {
   defaultNorm: 8,
@@ -592,6 +608,18 @@ function ItemPhoto({ item, width }: { item: CatalogItem; width: number }) {
   )
 }
 
+// Height-animated show/hide -- grid-template-rows 0fr <-> 1fr, the same
+// technique as the login form's field group. Content stays mounted so it
+// can animate out; `inert` keeps it out of the tab order and hidden from
+// assistive tech while collapsed.
+function Collapse({ open, className = '', children }: { open: boolean; className?: string; children: ReactNode }) {
+  return (
+    <div className={`collapse ${open ? 'is-open' : ''} ${className}`} inert={!open}>
+      <div className="collapse-inner">{children}</div>
+    </div>
+  )
+}
+
 function useStockStatus(item: CatalogItem): StockStatus {
   return stockStatus(item, useContext(StockRuleContext))
 }
@@ -941,7 +969,7 @@ function CategoryPicker({
                   {childCount > 0 && <span className="cat-tree-count">{childCount}</span>}
                 </label>
               </div>
-              {open && renderLevel(node.id, depth + 1)}
+              <Collapse open={open}>{renderLevel(node.id, depth + 1)}</Collapse>
             </li>
           )
         })}
@@ -1166,9 +1194,7 @@ function LevelEditor({
 
   function addLevel() {
     const top = levels.reduce((max, l) => Math.max(max, l.upTo), 0)
-    const used = new Set(levels.map((l) => l.color))
-    const color = LEVEL_COLORS.find((c) => !used.has(c.color))?.color ?? LEVEL_COLORS[0].color
-    onChange([...levels, { id: crypto.randomUUID(), upTo: Math.min(top + 20, 100), color }])
+    onChange([...levels, { id: crypto.randomUUID(), upTo: Math.min(top + 20, 100), color: nextLevelColor(levels) }])
   }
 
   return (
@@ -1194,20 +1220,16 @@ function LevelEditor({
               %
             </label>
             <span className="level-count">≤ {Math.floor((norm * level.upTo) / 100)} шт.</span>
-            <span className="level-swatches" role="radiogroup" aria-label="Цвет уровня">
-              {LEVEL_COLORS.map((c) => (
-                <button
-                  key={c.color}
-                  type="button"
-                  role="radio"
-                  aria-checked={level.color === c.color}
-                  aria-label={c.label}
-                  className={`level-swatch ${level.color === c.color ? 'is-selected' : ''}`}
-                  style={{ background: c.color }}
-                  onClick={() => patch(level.id, { color: c.color })}
-                />
-              ))}
-            </span>
+            {/* Any color, not a fixed palette -- a rule can have more
+             * levels than any fixed set of swatches. */}
+            <label className="level-color" style={{ background: level.color }}>
+              <input
+                type="color"
+                value={level.color}
+                aria-label={`Цвет уровня до ${level.upTo} %`}
+                onChange={(e) => patch(level.id, { color: e.target.value })}
+              />
+            </label>
             <button
               type="button"
               className="level-remove"
@@ -1233,25 +1255,18 @@ function copyLevels(levels: StockLevel[]): StockLevel[] {
 }
 
 // Opens from the card's "Количество" block: this item's norm and whether
-// it follows the global rule or has its own levels. The global rule itself
-// can be edited from here too -- it shows how many items follow it, since
-// items with their own levels (or norm) aren't affected by it.
+// it follows the global rule (shown read-only) or has its own levels.
 function StockPanel({
   item,
   status,
   globalRule,
-  globalFollowers,
   onChange,
-  onChangeGlobalRule,
 }: {
   item: CatalogItem
   status: StockStatus
   globalRule: GlobalStockRule
-  globalFollowers: number
   onChange: (patch: Partial<Pick<CatalogItem, 'norm' | 'levels'>>) => void
-  onChangeGlobalRule: (rule: GlobalStockRule) => void
 }) {
-  const [globalOpen, setGlobalOpen] = useState(false)
   const own = item.levels !== undefined
 
   return (
@@ -1287,7 +1302,7 @@ function StockPanel({
       </div>
 
       <div className="stock-panel-block">
-        <div className="segmented" role="radiogroup" aria-label="Правило цвета">
+        <div className={`segmented ${own ? 'is-second' : ''}`} role="radiogroup" aria-label="Правило цвета">
           <button
             type="button"
             role="radio"
@@ -1307,74 +1322,32 @@ function StockPanel({
             Своё правило
           </button>
         </div>
-        {own ? (
-          <>
-            <p className="stock-hint">Изменения общего правила на этот предмет не действуют.</p>
-            <LevelEditor levels={item.levels!} norm={status.norm} onChange={(levels) => onChange({ levels })} />
-          </>
-        ) : (
-          <>
+        {/* Both variants stay mounted and swap by collapsing, so switching
+         * rules animates instead of snapping. While collapsed, the own-rule
+         * editor shows the global levels as a stand-in (it's inert then,
+         * and item.levels is already gone once switched back). */}
+        <Collapse open={!own}>
+          <div className="stock-rule-body">
             <RulePreview levels={globalRule.levels} marker={status.percent} />
             <p className="stock-hint">
               Сейчас {Math.round(status.percent)} % от нормы. Чтобы задать уровни только для этого предмета,
               выберите «Своё правило» — он перестанет следовать общему.
             </p>
-          </>
-        )}
-      </div>
-
-      <div className="stock-panel-block stock-global">
-        <button
-          type="button"
-          className="stock-global-toggle"
-          aria-expanded={globalOpen}
-          onClick={() => setGlobalOpen((v) => !v)}
-        >
-          <ChevronIcon />
-          Общее правило для всех предметов
-          <span className="stock-global-count">
-            {globalFollowers} {pluralItems(globalFollowers)}
-          </span>
-        </button>
-        {globalOpen && (
-          <div className="stock-global-body">
-            <label className="stock-norm">
-              <span className="detail-label">Норма по умолчанию</span>
-              <span className="stock-norm-input">
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={globalRule.defaultNorm}
-                  onChange={(e) => {
-                    const v = e.target.valueAsNumber
-                    if (!Number.isNaN(v) && v >= 1) onChangeGlobalRule({ ...globalRule, defaultNorm: Math.round(v) })
-                  }}
-                />
-                шт.
-              </span>
-            </label>
-            <LevelEditor
-              levels={globalRule.levels}
-              norm={globalRule.defaultNorm}
-              onChange={(levels) => onChangeGlobalRule({ ...globalRule, levels })}
-            />
-            <p className="stock-hint">
-              Действует на предметы без своего правила. Предметы со своим правилом не меняются.
-            </p>
           </div>
-        )}
+        </Collapse>
+        <Collapse open={own}>
+          <div className="stock-rule-body">
+            <p className="stock-hint">Изменения общего правила на этот предмет не действуют.</p>
+            <LevelEditor
+              levels={item.levels ?? globalRule.levels}
+              norm={status.norm}
+              onChange={(levels) => onChange({ levels })}
+            />
+          </div>
+        </Collapse>
       </div>
     </div>
   )
-}
-
-function pluralItems(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return 'предмет'
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'предмета'
-  return 'предметов'
 }
 
 // What opens from a search result (or a list row's info button): the
@@ -1385,18 +1358,14 @@ function ItemDetailCard({
   item,
   categories,
   knownTags,
-  globalFollowers,
   onChange,
-  onChangeGlobalRule,
   onCreateCategory,
   onClose,
 }: {
   item: CatalogItem
   categories: CategoryNode[]
   knownTags: string[]
-  globalFollowers: number
   onChange: (patch: Partial<Pick<CatalogItem, 'categoryIds' | 'tags' | 'norm' | 'levels'>>) => void
-  onChangeGlobalRule: (rule: GlobalStockRule) => void
   onCreateCategory: (name: string, parentId: string | null) => string
   onClose: () => void
 }) {
@@ -1404,8 +1373,11 @@ function ItemDetailCard({
   const globalRule = useContext(StockRuleContext)
   const status = stockStatus(item, globalRule)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [placesOpen, setPlacesOpen] = useState(false)
-  const [stockOpen, setStockOpen] = useState(false)
+  // One panel under the facts at a time: opening the places list closes
+  // the stock settings and vice versa.
+  const [openFact, setOpenFact] = useState<'places' | 'stock' | null>(null)
+  const placesOpen = openFact === 'places'
+  const stockOpen = openFact === 'stock'
   const [copied, setCopied] = useState(false)
   const itemCategoryIds = item.categoryIds.filter((id) => index.has(id))
   const otherPlaces = item.stock.length - 1
@@ -1458,42 +1430,47 @@ function ItemDetailCard({
         </h2>
 
         {/* Both facts are buttons that expand a panel under the pair:
-         * every place the item is kept, and its stock settings. */}
-        <div className="detail-facts">
-          <button
-            type="button"
-            className={`detail-fact detail-fact-btn ${placesOpen ? 'is-open' : ''}`}
-            aria-expanded={placesOpen}
-            onClick={() => setPlacesOpen((v) => !v)}
-          >
-            <span className="detail-fact-head">
-              <span className="detail-label">{otherPlaces > 0 ? `Ячейки · ${item.stock.length}` : 'Ячейка'}</span>
-              <ChevronIcon />
-            </span>
-            <CellLabel location={mainLocation(item)} full />
-            <span className="detail-fact-hint">
-              {otherPlaces > 0 ? `и ещё ${otherPlaces} ${pluralPlaces(otherPlaces)}` : 'Где лежит'}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`detail-fact detail-fact-btn detail-fact-qty ${stockOpen ? 'is-open' : ''}`}
-            aria-expanded={stockOpen}
-            onClick={() => setStockOpen((v) => !v)}
-          >
-            <span className="detail-fact-head">
-              <span className="detail-label">Количество</span>
-              <ChevronIcon />
-            </span>
-            <span className="detail-qty">
-              <span className="detail-qty-num">{status.qty}</span>
-              <span className="detail-qty-unit">из {status.norm} шт.</span>
-            </span>
-            <StockMeter percent={status.percent} qty={status.qty} />
-            <span className="detail-fact-hint">Норма и цвета</span>
-          </button>
+         * every place the item is kept, or its stock settings. */}
+        <div className="detail-facts-group">
+          <div className="detail-facts">
+            <button
+              type="button"
+              className={`detail-fact detail-fact-btn ${placesOpen ? 'is-open' : ''}`}
+              aria-expanded={placesOpen}
+              onClick={() => setOpenFact(placesOpen ? null : 'places')}
+            >
+              <span className="detail-fact-head">
+                <span className="detail-label">{otherPlaces > 0 ? `Ячейки · ${item.stock.length}` : 'Ячейка'}</span>
+                <ChevronIcon />
+              </span>
+              <CellLabel location={mainLocation(item)} full />
+              <span className="detail-fact-hint">
+                {otherPlaces > 0 ? `и ещё ${otherPlaces} ${pluralPlaces(otherPlaces)}` : 'Где лежит'}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`detail-fact detail-fact-btn detail-fact-qty ${stockOpen ? 'is-open' : ''}`}
+              aria-expanded={stockOpen}
+              onClick={() => setOpenFact(stockOpen ? null : 'stock')}
+            >
+              <span className="detail-fact-head">
+                <span className="detail-label">Количество</span>
+                <ChevronIcon />
+              </span>
+              <span className="detail-qty">
+                <span className="detail-qty-num">{status.qty}</span>
+                <span className="detail-qty-unit">из {status.norm} шт.</span>
+              </span>
+              <StockMeter percent={status.percent} qty={status.qty} />
+              <span className="detail-fact-hint">Норма и цвета</span>
+            </button>
 
-          {placesOpen && (
+          </div>
+
+          {/* Outside the facts grid, and spaced by their own padding rather
+           * than a gap, so a collapsed panel takes no room at all. */}
+          <Collapse open={placesOpen} className="detail-fact-panel">
             <ul className="detail-places">
               {item.stock.map((entry, i) => (
                 <li key={locationPath(entry.location)} className="detail-place">
@@ -1503,18 +1480,11 @@ function ItemDetailCard({
                 </li>
               ))}
             </ul>
-          )}
+          </Collapse>
 
-          {stockOpen && (
-            <StockPanel
-              item={item}
-              status={status}
-              globalRule={globalRule}
-              globalFollowers={globalFollowers}
-              onChange={onChange}
-              onChangeGlobalRule={onChangeGlobalRule}
-            />
-          )}
+          <Collapse open={stockOpen} className="detail-fact-panel">
+            <StockPanel item={item} status={status} globalRule={globalRule} onChange={onChange} />
+          </Collapse>
         </div>
 
         <section className="detail-section">
@@ -1567,14 +1537,14 @@ function ItemDetailCard({
               </button>
             </li>
           </ul>
-          {pickerOpen && (
+          <Collapse open={pickerOpen}>
             <CategoryPicker
               categories={categories}
               selectedIds={itemCategoryIds}
               onToggle={toggleCategory}
               onCreate={createCategory}
             />
-          )}
+          </Collapse>
         </section>
 
         <section className="detail-section">
@@ -1672,8 +1642,6 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   // live until reload.
   const [items, setItems] = useState<CatalogItem[]>(ITEMS)
   const [categories, setCategories] = useState<CategoryNode[]>(SEED_CATEGORIES)
-  const [stockRule, setStockRule] = useState<GlobalStockRule>(DEFAULT_STOCK_RULE)
-  const globalFollowers = useMemo(() => items.filter((item) => item.levels === undefined).length, [items])
   const categoryIndex = useMemo<CategoryIndex>(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const rootCategories = useMemo(() => categories.filter((c) => c.parentId === null), [categories])
   const knownTags = useMemo(() => [...new Set(items.flatMap((item) => item.tags))].sort((a, b) => a.localeCompare(b, 'ru')), [items])
@@ -1883,7 +1851,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
 
   return (
     <CategoryIndexContext.Provider value={categoryIndex}>
-      <StockRuleContext.Provider value={stockRule}>
+      {/* Fixed for now; will come from the backend's global settings (see
+       * docs/scanning-grammar.md §8), not be edited from an item's card. */}
+      <StockRuleContext.Provider value={DEFAULT_STOCK_RULE}>
         <div className="catalog-page">
           <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
@@ -2131,9 +2101,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                   item={detailItem}
                   categories={categories}
                   knownTags={knownTags}
-                  globalFollowers={globalFollowers}
                   onChange={(patch) => updateItem(detailItem.id, patch)}
-                  onChangeGlobalRule={setStockRule}
                   onCreateCategory={createCategory}
                   onClose={closeDetail}
                 />

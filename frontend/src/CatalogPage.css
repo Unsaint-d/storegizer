@@ -1752,10 +1752,62 @@
 
 /* ---------- detail card: places and stock panels ---------- */
 
-/* Expanded under the facts pair, full width. */
-.detail-places,
-.stock-panel {
-  grid-column: 1 / -1;
+/* ---------- shared: collapse + appear animations ---------- */
+
+/* See Collapse in CatalogPage.tsx. The inner box must stay padding-free:
+ * padding can't shrink below itself, so a collapsed track would keep it
+ * as a gap -- spacing goes on the content inside instead. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.32s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.22s ease;
+}
+
+.collapse.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Newly added chips, tags and level rows fade/scale in rather than
+ * popping into place. */
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse {
+    transition: none;
+  }
+
+  .category-chip,
+  .tag-chip,
+  .tag-input-wrap,
+  .level-row {
+    animation: none;
+  }
+}
+
+.detail-facts-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-fact-panel .detail-places,
+.detail-fact-panel .stock-panel {
+  margin-top: 0.75rem;
 }
 
 .detail-places {
@@ -1821,12 +1873,20 @@
   gap: 0.5rem 1rem;
 }
 
+/* No gap here: the two rule variants below are collapses, and a gap
+ * would stay even for the collapsed one. .stock-rule-body spaces itself. */
 .stock-panel-block {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
   padding-top: 0.85rem;
   border-top: 1px dashed var(--border);
+}
+
+.stock-rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.6rem;
 }
 
 .stock-norm {
@@ -1878,7 +1938,10 @@
   color: var(--muted);
 }
 
+/* Two options with a sliding thumb (::before) under the active one,
+ * rather than the highlight jumping between buttons. */
 .segmented {
+  position: relative;
   display: flex;
   padding: 3px;
   border-radius: 10px;
@@ -1886,7 +1949,24 @@
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
+.segmented::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 7px;
+  background: var(--accent);
+  transition: transform 0.3s cubic-bezier(0.65, 0, 0.35, 1), background-color 0.3s ease;
+}
+
+.segmented.is-second::before {
+  transform: translateX(100%);
+}
+
 .segmented button {
+  position: relative;
   flex: 1;
   height: 30px;
   border: none;
@@ -1897,7 +1977,7 @@
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: color 0.25s ease;
 }
 
 .segmented button:hover {
@@ -1905,8 +1985,13 @@
 }
 
 .segmented button.is-active {
-  background: var(--accent);
   color: var(--accent-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented::before {
+    transition: none;
+  }
 }
 
 .level-editor {
@@ -1929,6 +2014,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem 0.75rem;
+  animation: appear 0.22s ease both;
 }
 
 .level-upto {
@@ -1950,28 +2036,37 @@
   color: var(--muted);
 }
 
-.level-swatches {
-  display: inline-flex;
-  gap: 5px;
+/* A round swatch in the level's color that opens the native color picker.
+ * The <input> is stretched invisibly over it: its own swatch rendering
+ * differs per browser and can't be fully restyled. */
+.level-color {
+  position: relative;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3px var(--border);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
-.level-swatch {
-  width: 20px;
-  height: 20px;
+.level-color:hover {
+  transform: scale(1.1);
+}
+
+.level-color:focus-within {
+  box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3.5px var(--accent);
+}
+
+.level-color input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  opacity: 0;
   cursor: pointer;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.level-swatch:hover {
-  transform: scale(1.12);
-}
-
-.level-swatch.is-selected {
-  box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3.5px var(--ink);
 }
 
 .level-remove {
@@ -2036,6 +2131,7 @@
 
 .rule-preview > span:not(.rule-preview-marker) {
   height: 100%;
+  transition: width 0.3s cubic-bezier(0.65, 0, 0.35, 1), background-color 0.2s ease;
 }
 
 .rule-preview > span:first-child {
@@ -2056,53 +2152,7 @@
   border-radius: 2px;
   background: var(--ink);
   box-shadow: 0 0 0 2px var(--surface-2);
-}
-
-.stock-global-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink);
-  text-align: left;
-  cursor: pointer;
-}
-
-.stock-global-toggle svg {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--muted);
-  transition: transform 0.2s ease;
-}
-
-.stock-global-toggle[aria-expanded='true'] svg {
-  transform: rotate(90deg);
-}
-
-.stock-global-count {
-  flex-shrink: 0;
-  margin-left: auto;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--muted);
-}
-
-.stock-global-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.75rem;
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--border);
+  transition: left 0.3s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* Same family as the tags' "+": a dashed pill at the end of the chips.
@@ -2164,6 +2214,7 @@
   font-size: 12.5px;
   color: var(--ink);
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  animation: appear 0.22s ease both;
 }
 
 /* The primary category -- the one whose hue the card wears (--cat). */
@@ -2401,6 +2452,7 @@
   font-weight: 500;
   color: var(--ink);
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  animation: appear 0.22s ease both;
 }
 
 /* The role-style colored dot doubles as the remove button: an × shows in
@@ -2463,6 +2515,7 @@
 
 .tag-input-wrap {
   position: relative;
+  animation: appear 0.18s ease both;
 }
 
 .tag-input {
@@ -2493,6 +2546,24 @@
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow), inset 0 0 0 1px var(--border);
+  animation: suggest-rise 0.18s ease both;
+}
+
+@keyframes suggest-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-suggest {
+    animation: none;
+  }
 }
 
 .tag-suggest li {
