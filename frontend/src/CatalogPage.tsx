@@ -48,12 +48,40 @@ type CategoryNode = {
 
 type CategoryIndex = Map<string, CategoryNode>
 
+// One place the item is kept and how many are there -- the same item can
+// sit in several cells, like the backend's BIN_STOCK (bin, item, qty) rows.
+type StockEntry = {
+  location: string[]
+  qty: number
+}
+
+// "Up to `upTo` % of the item's norm, show it in `color`." A rule is a list
+// of these; the lowest matching one wins, and above all of them the item
+// is simply in stock (drawn in its category color).
+type StockLevel = {
+  id: string
+  upTo: number
+  color: string
+}
+
+// The global rule: its levels, plus the norm used by items that don't set
+// their own.
+type GlobalStockRule = {
+  defaultNorm: number
+  levels: StockLevel[]
+}
+
 type CatalogItem = {
   id: number
   name: string
   categoryIds: string[]
-  location: string[]
-  qty: number
+  // First entry is the item's main place.
+  stock: StockEntry[]
+  // How many make a full stock (100 %). Unset: the global default.
+  norm?: number
+  // Its own levels. Unset: follows the global rule, including later edits
+  // to it; set: detached from the global rule entirely.
+  levels?: StockLevel[]
   barcode: string
   tags: string[]
   // Fallback glyph for the photo slot when there's no photo or it fails to
@@ -113,9 +141,25 @@ const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'high', label: `Много (> ${HIGH_STOCK_MIN} шт.)` },
 ]
 
-// There's no per-item "normal stock" figure yet, so the meter is a fixed
-// scale: one segment per unit, full at this many.
 const STOCK_METER_SEGMENTS = 8
+
+// Swatches offered for a level. Fills only (meter, numeral tint), so each
+// works on both themes.
+const LEVEL_COLORS = [
+  { color: '#e5796b', label: 'Красный' },
+  { color: '#e79a55', label: 'Оранжевый' },
+  { color: '#e6c65c', label: 'Жёлтый' },
+  { color: '#7fb561', label: 'Зелёный' },
+  { color: '#6f9ad6', label: 'Синий' },
+]
+
+const DEFAULT_STOCK_RULE: GlobalStockRule = {
+  defaultNorm: 8,
+  levels: [
+    { id: 'global-critical', upTo: 25, color: '#e5796b' },
+    { id: 'global-low', upTo: 60, color: '#e6c65c' },
+  ],
+}
 
 // One muted hue per top-level category (a whole branch shares it), picked
 // to sit well on both themes' warm surfaces. Used for fills (spine, meter,
@@ -199,34 +243,89 @@ function photoUrl(id: string, width: number): string {
 }
 
 const ITEMS: CatalogItem[] = [
-  { id: 1, name: 'Консервированные томаты', categoryIds: ['food-canned'], location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar', photo: '1612204103209-fb81a3384c78' },
-  { id: 2, name: 'Туалетная бумага', categoryIds: ['hygiene'], location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box', photo: '1584556812952-905ffd0c611a' },
-  { id: 3, name: 'Аптечка первой помощи', categoryIds: ['med-first-aid'], location: ['Прихожая', 'Верхняя полка'], qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box', photo: '1563260324-5ebeedc8af7c' },
-  { id: 4, name: 'Зимняя резина, комплект', categoryIds: ['auto-tires'], location: ['Гараж', 'Стеллаж A'], qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag', photo: '1571335746824-742511d49bce' },
-  { id: 5, name: 'Крупа гречневая', categoryIds: ['food-grains'], location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar', photo: '1719060038791-012d4a471d91' },
-  { id: 6, name: 'Лампочки LED E27', categoryIds: ['mount-light'], location: ['Кладовая', 'Ящик 3'], qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box', photo: '1552862750-746b8f6f7f25' },
-  { id: 7, name: 'Моторное масло 5W-30', categoryIds: ['auto-chem'], location: ['Гараж', 'Стеллаж B'], qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar', photo: '1590227763209-821c686b932f' },
-  { id: 8, name: 'Стиральный порошок', categoryIds: ['hygiene-chem'], location: ['Балкон', 'Шкаф'], qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box', photo: '1582735689369-4fe89db7114c' },
-  { id: 9, name: 'Батарейки АА', categoryIds: ['drone-power', 'mount-electric'], location: ['Кухня', 'Ящик стола'], qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag', photo: '1576834975354-ee694be1f0d1' },
-  { id: 10, name: 'Консервы тунец', categoryIds: ['food-canned'], location: ['Кладовая', 'Полка 2'], qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar', photo: '1590769383363-5681e57ff10f' },
-  { id: 11, name: 'Автомобильные щётки', categoryIds: ['auto-accessories'], location: ['Гараж', 'Стеллаж A'], qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag', photo: '1508786250378-b165238d6e8b' },
-  { id: 12, name: 'Полотенца банные', categoryIds: ['hygiene-textile'], location: ['Ванная', 'Верхняя полка'], qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box', photo: '1523471826770-c437b4636fe6' },
+  { id: 1, name: 'Консервированные томаты', categoryIds: ['food-canned'], stock: [{ location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 4 }, { location: ['Кладовая', 'Полка 2'], qty: 2 }], barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar', photo: '1612204103209-fb81a3384c78' },
+  { id: 2, name: 'Туалетная бумага', categoryIds: ['hygiene'], stock: [{ location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 8 }, { location: ['Кладовая', 'Полка 1'], qty: 4 }], norm: 24, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box', photo: '1584556812952-905ffd0c611a' },
+  { id: 3, name: 'Аптечка первой помощи', categoryIds: ['med-first-aid'], stock: [{ location: ['Прихожая', 'Верхняя полка'], qty: 1 }], norm: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box', photo: '1563260324-5ebeedc8af7c' },
+  { id: 4, name: 'Зимняя резина, комплект', categoryIds: ['auto-tires'], stock: [{ location: ['Гараж', 'Стеллаж A'], qty: 4 }], norm: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag', photo: '1571335746824-742511d49bce' },
+  { id: 5, name: 'Крупа гречневая', categoryIds: ['food-grains'], stock: [{ location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3 }], barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar', photo: '1719060038791-012d4a471d91' },
+  { id: 6, name: 'Лампочки LED E27', categoryIds: ['mount-light'], stock: [{ location: ['Кладовая', 'Ящик 3'], qty: 8 }], barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box', photo: '1552862750-746b8f6f7f25' },
+  { id: 7, name: 'Моторное масло 5W-30', categoryIds: ['auto-chem'], stock: [{ location: ['Гараж', 'Стеллаж B'], qty: 2 }], norm: 4, levels: [{ id: 'oil-low', upTo: 50, color: '#e79a55' }], barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar', photo: '1590227763209-821c686b932f' },
+  { id: 8, name: 'Стиральный порошок', categoryIds: ['hygiene-chem'], stock: [{ location: ['Балкон', 'Шкаф'], qty: 1 }], barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box', photo: '1582735689369-4fe89db7114c' },
+  { id: 9, name: 'Батарейки АА', categoryIds: ['drone-power', 'mount-electric'], stock: [{ location: ['Кухня', 'Ящик стола'], qty: 10 }, { location: ['Кладовая', 'Ящик 3'], qty: 4 }, { location: ['Гараж', 'Стеллаж A'], qty: 2 }], norm: 20, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag', photo: '1576834975354-ee694be1f0d1' },
+  { id: 10, name: 'Консервы тунец', categoryIds: ['food-canned'], stock: [{ location: ['Кладовая', 'Полка 2'], qty: 5 }], barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar', photo: '1590769383363-5681e57ff10f' },
+  { id: 11, name: 'Автомобильные щётки', categoryIds: ['auto-accessories'], stock: [{ location: ['Гараж', 'Стеллаж A'], qty: 2 }], barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag', photo: '1508786250378-b165238d6e8b' },
+  { id: 12, name: 'Полотенца банные', categoryIds: ['hygiene-textile'], stock: [{ location: ['Ванная', 'Верхняя полка'], qty: 3 }, { location: ['Балкон', 'Шкаф'], qty: 1 }], barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box', photo: '1523471826770-c437b4636fe6' },
 ]
 
-function locationPath(item: CatalogItem): string {
-  return item.location.join(':')
+function locationPath(location: string[]): string {
+  return location.join(':')
 }
 
 // The bin/cell itself (the path's last segment) is what you need at a
 // glance; cards emphasize it and let the parent rooms/shelves truncate
 // first. The full path is always in the native title tooltip.
-function locationCell(item: CatalogItem): string {
-  return item.location[item.location.length - 1] ?? ''
+function locationCell(location: string[]): string {
+  return location[location.length - 1] ?? ''
 }
 
-function locationParents(item: CatalogItem): string {
-  return item.location.slice(0, -1).join(' › ')
+function locationParents(location: string[]): string {
+  return location.slice(0, -1).join(' › ')
 }
+
+function mainLocation(item: CatalogItem): string[] {
+  return item.stock[0]?.location ?? []
+}
+
+function itemQty(item: CatalogItem): number {
+  return item.stock.reduce((sum, entry) => sum + entry.qty, 0)
+}
+
+type StockStatus = {
+  qty: number
+  norm: number
+  normIsOwn: boolean
+  // qty as a share of the norm, 0..∞ (can exceed 100).
+  percent: number
+  levels: StockLevel[]
+  levelsAreOwn: boolean
+  // The level the item currently falls into, or null when it's above all
+  // of them (in stock).
+  level: StockLevel | null
+  // In the rule's lowest level -- the "running out" state.
+  isLowest: boolean
+}
+
+function sortLevels(levels: StockLevel[]): StockLevel[] {
+  return [...levels].sort((a, b) => a.upTo - b.upTo)
+}
+
+function stockStatus(item: CatalogItem, rule: GlobalStockRule): StockStatus {
+  const qty = itemQty(item)
+  const norm = item.norm ?? rule.defaultNorm
+  const levels = sortLevels(item.levels ?? rule.levels)
+  const percent = norm > 0 ? (qty / norm) * 100 : 100
+  const level = levels.find((l) => percent <= l.upTo) ?? null
+  return {
+    qty,
+    norm,
+    normIsOwn: item.norm !== undefined,
+    percent,
+    levels,
+    levelsAreOwn: item.levels !== undefined,
+    level,
+    isLowest: level !== null && level === levels[0],
+  }
+}
+
+// --cat for the category, --stock for everything that shows stock (meter,
+// numerals): the current level's color, or the category's when in stock.
+function cardStyle(index: CategoryIndex, item: CatalogItem, status: StockStatus): CSSProperties {
+  const hue = primaryCategory(index, item)?.hue ?? UNCATEGORIZED_HUE
+  return { '--cat': hue, '--stock': status.level?.color ?? hue } as CSSProperties
+}
+
+// Cards read the global rule from here, like the category tree.
+const StockRuleContext = createContext<GlobalStockRule>(DEFAULT_STOCK_RULE)
 
 // ---------- EAN-13 ----------
 //
@@ -370,7 +469,7 @@ function scoreItem(item: CatalogItem, field: SearchField, text: string, index: C
     boost(fuzzyScore(text, item.name), 300),
     item.barcode.includes(text) ? 250 : -1,
     categoryScore(),
-    boost(fuzzyScore(text, locationPath(item)), -50),
+    ...item.stock.map((entry) => boost(fuzzyScore(text, locationPath(entry.location)), -50)),
     ...item.tags.map((tag) => fuzzyScore(text, tag)),
   ]
   return Math.max(...candidates)
@@ -493,8 +592,14 @@ function ItemPhoto({ item, width }: { item: CatalogItem; width: number }) {
   )
 }
 
-function StockMeter({ qty }: { qty: number }) {
-  const filled = Math.min(qty, STOCK_METER_SEGMENTS)
+function useStockStatus(item: CatalogItem): StockStatus {
+  return stockStatus(item, useContext(StockRuleContext))
+}
+
+// Fills in proportion to the norm (full at 100 %, and stays full above
+// it); any stock at all shows at least one segment.
+function StockMeter({ percent, qty }: { percent: number; qty: number }) {
+  const filled = qty > 0 ? Math.max(1, Math.round((Math.min(percent, 100) / 100) * STOCK_METER_SEGMENTS)) : 0
   return (
     <span className="stock-meter" aria-hidden="true">
       {Array.from({ length: STOCK_METER_SEGMENTS }, (_, i) => (
@@ -504,33 +609,43 @@ function StockMeter({ qty }: { qty: number }) {
   )
 }
 
-function StockLine({ item }: { item: CatalogItem }) {
+function StockLine({ status }: { status: StockStatus }) {
   return (
-    <div className="stock-line" aria-label={`Остаток: ${item.qty} шт.`}>
-      <StockMeter qty={item.qty} />
-      <span className="stock-qty">×{item.qty}</span>
+    <div className="stock-line" aria-label={`Остаток: ${status.qty} из ${status.norm} шт.`}>
+      <StockMeter percent={status.percent} qty={status.qty} />
+      <span className="stock-qty">×{status.qty}</span>
     </div>
   )
 }
 
 // "ЯЧ" label + path, with the cell itself in bold and always visible --
 // the parent rooms/shelves are what give way (ellipsis) when it's long.
-// `full` wraps the whole path instead of truncating it (detail card).
-function CellLabel({ item, full = false }: { item: CatalogItem; full?: boolean }) {
-  const parents = locationParents(item)
+// `full` wraps the whole path instead of truncating it (detail card);
+// `more` is how many other places the item is also kept in.
+function CellLabel({ location, more = 0, full = false }: { location: string[]; more?: number; full?: boolean }) {
+  const parents = locationParents(location)
   return (
-    <p className={`cell-label ${full ? 'cell-label-full' : ''}`} title={locationPath(item)}>
+    <p className={`cell-label ${full ? 'cell-label-full' : ''}`} title={locationPath(location)}>
       <span className="cell-label-tag">ЯЧ</span>
       <span className="cell-label-path">
         {parents && <span className="cell-label-parents">{parents} ›&nbsp;</span>}
-        <b>{locationCell(item)}</b>
+        <b>{locationCell(location)}</b>
       </span>
+      {more > 0 && (
+        <span className="cell-label-more" title={`Ещё ${more} ${pluralPlaces(more)}`}>
+          +{more}
+        </span>
+      )}
     </p>
   )
 }
 
-function isLowStock(item: CatalogItem): boolean {
-  return item.qty <= LOW_STOCK_MAX
+function pluralPlaces(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'место'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'места'
+  return 'мест'
 }
 
 // The catalog's main card, styled as a warehouse tag: photo on top,
@@ -543,9 +658,13 @@ function isLowStock(item: CatalogItem): boolean {
 function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | 'lg' }) {
   const index = useContext(CategoryIndexContext)
   const category = primaryCategory(index, item)
-  const low = isLowStock(item)
+  const status = useStockStatus(item)
+  const location = mainLocation(item)
   return (
-    <article className={`tag-card tag-card-${size} ${low ? 'is-low' : ''}`} style={categoryStyle(index, item)}>
+    <article
+      className={`tag-card tag-card-${size} ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''}`}
+      style={cardStyle(index, item, status)}
+    >
       <div className="tag-card-photo">
         <ItemPhoto item={item} width={size === 'lg' ? 520 : 360} />
         {category && (
@@ -553,15 +672,15 @@ function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | '
             {category.name}
           </span>
         )}
-        {low && <span className="tag-card-low">Заканчивается</span>}
+        {status.isLowest && <span className="tag-card-low">Заканчивается</span>}
       </div>
       <div className="tag-card-body">
         <span className="tag-card-watermark" aria-hidden="true">
-          {item.qty}
+          {status.qty}
         </span>
         <h3>{item.name}</h3>
-        <CellLabel item={item} />
-        <StockLine item={item} />
+        <CellLabel location={location} more={item.stock.length - 1} />
+        <StockLine status={status} />
         {size === 'lg' && item.tags.length > 0 && (
           <div className="tag-card-tags">
             {item.tags.map((tag) => (
@@ -571,12 +690,15 @@ function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | '
             ))}
           </div>
         )}
-        <p className="item-tile-meta" title={locationPath(item)}>
-          <span className="item-tile-cell">{locationCell(item)}</span>
+        <p className="item-tile-meta" title={locationPath(location)}>
+          <span className="item-tile-cell">
+            {locationCell(location)}
+            {item.stock.length > 1 && ` +${item.stock.length - 1}`}
+          </span>
           <span className="item-tile-sep" aria-hidden="true">
             |
           </span>
-          <span className="item-tile-qty">×{item.qty}</span>
+          <span className="item-tile-qty">×{status.qty}</span>
         </p>
       </div>
       <div className="tag-card-stub">
@@ -592,10 +714,13 @@ function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | '
 function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: (item: CatalogItem) => void }) {
   const index = useContext(CategoryIndexContext)
   const category = primaryCategory(index, item)
-  const low = isLowStock(item)
+  const status = useStockStatus(item)
   const topTags = item.tags.slice(0, 3).join(', ')
   return (
-    <article className={`item-row ${low ? 'is-low' : ''}`} style={categoryStyle(index, item)}>
+    <article
+      className={`item-row ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''}`}
+      style={cardStyle(index, item, status)}
+    >
       <div className="item-row-photo">
         <ItemPhoto item={item} width={180} />
       </div>
@@ -608,10 +733,10 @@ function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: 
             </span>
           )}
         </div>
-        <CellLabel item={item} />
+        <CellLabel location={mainLocation(item)} more={item.stock.length - 1} />
         <div className="item-row-stock">
-          <StockLine item={item} />
-          {low && <span className="item-row-low">Заканчивается</span>}
+          <StockLine status={status} />
+          {status.isLowest && <span className="item-row-low">Заканчивается</span>}
           {topTags && <span className="item-row-tags">{topTags}</span>}
         </div>
       </div>
@@ -1001,6 +1126,257 @@ function TagEditor({
   )
 }
 
+// A bar across 0-100 % of the norm, colored by the rule's levels (and the
+// category color above them), with an optional marker for where the item
+// currently is.
+function RulePreview({ levels, marker }: { levels: StockLevel[]; marker?: number }) {
+  // Each level spans from the previous one's threshold to its own.
+  const segments = sortLevels(levels).map((level, i, sorted) => {
+    const from = i === 0 ? 0 : Math.min(sorted[i - 1].upTo, 100)
+    return { level, width: Math.max(Math.min(level.upTo, 100) - from, 0) }
+  })
+  const top = Math.min(levels.reduce((max, l) => Math.max(max, l.upTo), 0), 100)
+  return (
+    <div className="rule-preview" aria-hidden="true">
+      {segments.map(({ level, width }) => (
+        <span key={level.id} style={{ width: `${width}%`, background: level.color }} />
+      ))}
+      <span className="rule-preview-ok" style={{ width: `${100 - top}%` }} />
+      {marker !== undefined && (
+        <span className="rule-preview-marker" style={{ left: `${Math.min(marker, 100)}%` }} />
+      )}
+    </div>
+  )
+}
+
+// Rows keep the order they were added in (not sorted by threshold) so a
+// row doesn't jump away from under the cursor mid-edit; evaluation sorts.
+function LevelEditor({
+  levels,
+  norm,
+  onChange,
+}: {
+  levels: StockLevel[]
+  norm: number
+  onChange: (levels: StockLevel[]) => void
+}) {
+  function patch(id: string, change: Partial<StockLevel>) {
+    onChange(levels.map((l) => (l.id === id ? { ...l, ...change } : l)))
+  }
+
+  function addLevel() {
+    const top = levels.reduce((max, l) => Math.max(max, l.upTo), 0)
+    const used = new Set(levels.map((l) => l.color))
+    const color = LEVEL_COLORS.find((c) => !used.has(c.color))?.color ?? LEVEL_COLORS[0].color
+    onChange([...levels, { id: crypto.randomUUID(), upTo: Math.min(top + 20, 100), color }])
+  }
+
+  return (
+    <div className="level-editor">
+      {levels.length === 0 && <p className="detail-empty">Уровней нет — остаток всегда в цвете категории.</p>}
+      <ul className="level-list">
+        {levels.map((level) => (
+          <li key={level.id} className="level-row">
+            <label className="level-upto">
+              до
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={level.upTo}
+                aria-label="Порог уровня, процентов от нормы"
+                onChange={(e) => {
+                  const v = e.target.valueAsNumber
+                  if (!Number.isNaN(v)) patch(level.id, { upTo: Math.min(Math.max(Math.round(v), 0), 100) })
+                }}
+              />
+              %
+            </label>
+            <span className="level-count">≤ {Math.floor((norm * level.upTo) / 100)} шт.</span>
+            <span className="level-swatches" role="radiogroup" aria-label="Цвет уровня">
+              {LEVEL_COLORS.map((c) => (
+                <button
+                  key={c.color}
+                  type="button"
+                  role="radio"
+                  aria-checked={level.color === c.color}
+                  aria-label={c.label}
+                  className={`level-swatch ${level.color === c.color ? 'is-selected' : ''}`}
+                  style={{ background: c.color }}
+                  onClick={() => patch(level.id, { color: c.color })}
+                />
+              ))}
+            </span>
+            <button
+              type="button"
+              className="level-remove"
+              aria-label={`Удалить уровень до ${level.upTo} %`}
+              onClick={() => onChange(levels.filter((l) => l.id !== level.id))}
+            >
+              <CloseIcon />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="level-add" onClick={addLevel}>
+        <PlusIcon />
+        Уровень
+      </button>
+      <RulePreview levels={levels} />
+    </div>
+  )
+}
+
+function copyLevels(levels: StockLevel[]): StockLevel[] {
+  return levels.map((l) => ({ ...l, id: crypto.randomUUID() }))
+}
+
+// Opens from the card's "Количество" block: this item's norm and whether
+// it follows the global rule or has its own levels. The global rule itself
+// can be edited from here too -- it shows how many items follow it, since
+// items with their own levels (or norm) aren't affected by it.
+function StockPanel({
+  item,
+  status,
+  globalRule,
+  globalFollowers,
+  onChange,
+  onChangeGlobalRule,
+}: {
+  item: CatalogItem
+  status: StockStatus
+  globalRule: GlobalStockRule
+  globalFollowers: number
+  onChange: (patch: Partial<Pick<CatalogItem, 'norm' | 'levels'>>) => void
+  onChangeGlobalRule: (rule: GlobalStockRule) => void
+}) {
+  const [globalOpen, setGlobalOpen] = useState(false)
+  const own = item.levels !== undefined
+
+  return (
+    <div className="stock-panel">
+      <div className="stock-panel-row">
+        <label className="stock-norm">
+          <span className="detail-label">Норма (100 %)</span>
+          <span className="stock-norm-input">
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={item.norm ?? ''}
+              placeholder={String(globalRule.defaultNorm)}
+              onChange={(e) => {
+                const v = e.target.valueAsNumber
+                onChange({ norm: Number.isNaN(v) || v < 1 ? undefined : Math.round(v) })
+              }}
+            />
+            шт.
+          </span>
+        </label>
+        <p className="stock-hint">
+          {item.norm === undefined
+            ? `Общая норма — ${globalRule.defaultNorm} шт. Введите свою, чтобы считать проценты от неё.`
+            : 'Своя норма предмета.'}
+          {item.norm !== undefined && (
+            <button type="button" className="detail-link" onClick={() => onChange({ norm: undefined })}>
+              Вернуть общую
+            </button>
+          )}
+        </p>
+      </div>
+
+      <div className="stock-panel-block">
+        <div className="segmented" role="radiogroup" aria-label="Правило цвета">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!own}
+            className={!own ? 'is-active' : ''}
+            onClick={() => onChange({ levels: undefined })}
+          >
+            Общее правило
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={own}
+            className={own ? 'is-active' : ''}
+            onClick={() => !own && onChange({ levels: copyLevels(globalRule.levels) })}
+          >
+            Своё правило
+          </button>
+        </div>
+        {own ? (
+          <>
+            <p className="stock-hint">Изменения общего правила на этот предмет не действуют.</p>
+            <LevelEditor levels={item.levels!} norm={status.norm} onChange={(levels) => onChange({ levels })} />
+          </>
+        ) : (
+          <>
+            <RulePreview levels={globalRule.levels} marker={status.percent} />
+            <p className="stock-hint">
+              Сейчас {Math.round(status.percent)} % от нормы. Чтобы задать уровни только для этого предмета,
+              выберите «Своё правило» — он перестанет следовать общему.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="stock-panel-block stock-global">
+        <button
+          type="button"
+          className="stock-global-toggle"
+          aria-expanded={globalOpen}
+          onClick={() => setGlobalOpen((v) => !v)}
+        >
+          <ChevronIcon />
+          Общее правило для всех предметов
+          <span className="stock-global-count">
+            {globalFollowers} {pluralItems(globalFollowers)}
+          </span>
+        </button>
+        {globalOpen && (
+          <div className="stock-global-body">
+            <label className="stock-norm">
+              <span className="detail-label">Норма по умолчанию</span>
+              <span className="stock-norm-input">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={globalRule.defaultNorm}
+                  onChange={(e) => {
+                    const v = e.target.valueAsNumber
+                    if (!Number.isNaN(v) && v >= 1) onChangeGlobalRule({ ...globalRule, defaultNorm: Math.round(v) })
+                  }}
+                />
+                шт.
+              </span>
+            </label>
+            <LevelEditor
+              levels={globalRule.levels}
+              norm={globalRule.defaultNorm}
+              onChange={(levels) => onChangeGlobalRule({ ...globalRule, levels })}
+            />
+            <p className="stock-hint">
+              Действует на предметы без своего правила. Предметы со своим правилом не меняются.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function pluralItems(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'предмет'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'предмета'
+  return 'предметов'
+}
+
 // What opens from a search result (or a list row's info button): the
 // item's full "passport" -- photo, name, the whole cell address, qty and
 // stock, categories and tags (both editable here, the only place either
@@ -1009,22 +1385,30 @@ function ItemDetailCard({
   item,
   categories,
   knownTags,
+  globalFollowers,
   onChange,
+  onChangeGlobalRule,
   onCreateCategory,
   onClose,
 }: {
   item: CatalogItem
   categories: CategoryNode[]
   knownTags: string[]
-  onChange: (patch: Partial<Pick<CatalogItem, 'categoryIds' | 'tags'>>) => void
+  globalFollowers: number
+  onChange: (patch: Partial<Pick<CatalogItem, 'categoryIds' | 'tags' | 'norm' | 'levels'>>) => void
+  onChangeGlobalRule: (rule: GlobalStockRule) => void
   onCreateCategory: (name: string, parentId: string | null) => string
   onClose: () => void
 }) {
   const index = useContext(CategoryIndexContext)
+  const globalRule = useContext(StockRuleContext)
+  const status = stockStatus(item, globalRule)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [placesOpen, setPlacesOpen] = useState(false)
+  const [stockOpen, setStockOpen] = useState(false)
   const [copied, setCopied] = useState(false)
-  const low = isLowStock(item)
   const itemCategoryIds = item.categoryIds.filter((id) => index.has(id))
+  const otherPlaces = item.stock.length - 1
 
   useEffect(() => {
     if (!copied) return
@@ -1056,10 +1440,13 @@ function ItemDetailCard({
   }
 
   return (
-    <div className={`detail-card ${low ? 'is-low' : ''}`} style={categoryStyle(index, item)}>
+    <div
+      className={`detail-card ${status.level ? 'has-level' : ''} ${status.isLowest ? 'is-low' : ''}`}
+      style={cardStyle(index, item, status)}
+    >
       <div className="detail-photo">
         <ItemPhoto item={item} width={640} />
-        {low && <span className="tag-card-low detail-low">Заканчивается</span>}
+        {status.isLowest && <span className="tag-card-low detail-low">Заканчивается</span>}
         <button type="button" className="detail-close" onClick={onClose} aria-label="Закрыть">
           <CloseIcon />
         </button>
@@ -1070,72 +1457,116 @@ function ItemDetailCard({
           {item.name}
         </h2>
 
+        {/* Both facts are buttons that expand a panel under the pair:
+         * every place the item is kept, and its stock settings. */}
         <div className="detail-facts">
-          <section className="detail-fact">
-            <h3 className="detail-label">Ячейка</h3>
-            <CellLabel item={item} full />
-          </section>
-          <section className="detail-fact detail-fact-qty">
-            <h3 className="detail-label">Количество</h3>
-            <p className="detail-qty">
-              <span className="detail-qty-num">{item.qty}</span>
-              <span className="detail-qty-unit">шт.</span>
-            </p>
-            <StockMeter qty={item.qty} />
-          </section>
+          <button
+            type="button"
+            className={`detail-fact detail-fact-btn ${placesOpen ? 'is-open' : ''}`}
+            aria-expanded={placesOpen}
+            onClick={() => setPlacesOpen((v) => !v)}
+          >
+            <span className="detail-fact-head">
+              <span className="detail-label">{otherPlaces > 0 ? `Ячейки · ${item.stock.length}` : 'Ячейка'}</span>
+              <ChevronIcon />
+            </span>
+            <CellLabel location={mainLocation(item)} full />
+            <span className="detail-fact-hint">
+              {otherPlaces > 0 ? `и ещё ${otherPlaces} ${pluralPlaces(otherPlaces)}` : 'Где лежит'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`detail-fact detail-fact-btn detail-fact-qty ${stockOpen ? 'is-open' : ''}`}
+            aria-expanded={stockOpen}
+            onClick={() => setStockOpen((v) => !v)}
+          >
+            <span className="detail-fact-head">
+              <span className="detail-label">Количество</span>
+              <ChevronIcon />
+            </span>
+            <span className="detail-qty">
+              <span className="detail-qty-num">{status.qty}</span>
+              <span className="detail-qty-unit">из {status.norm} шт.</span>
+            </span>
+            <StockMeter percent={status.percent} qty={status.qty} />
+            <span className="detail-fact-hint">Норма и цвета</span>
+          </button>
+
+          {placesOpen && (
+            <ul className="detail-places">
+              {item.stock.map((entry, i) => (
+                <li key={locationPath(entry.location)} className="detail-place">
+                  <CellLabel location={entry.location} full />
+                  {i === 0 && item.stock.length > 1 && <span className="detail-place-main">основное</span>}
+                  <span className="detail-place-qty">×{entry.qty}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {stockOpen && (
+            <StockPanel
+              item={item}
+              status={status}
+              globalRule={globalRule}
+              globalFollowers={globalFollowers}
+              onChange={onChange}
+              onChangeGlobalRule={onChangeGlobalRule}
+            />
+          )}
         </div>
 
         <section className="detail-section">
-          <div className="detail-section-head">
-            <h3 className="detail-label">Категории</h3>
-            <button
-              type="button"
-              className="detail-link"
-              aria-expanded={pickerOpen}
-              onClick={() => setPickerOpen((v) => !v)}
-            >
-              {pickerOpen ? 'Готово' : 'Изменить'}
-            </button>
-          </div>
-          {itemCategoryIds.length > 0 ? (
-            <ul className="detail-chips">
-              {itemCategoryIds.map((id, i) => {
-                const chain = categoryChain(index, id)
-                const leaf = chain[chain.length - 1]
-                return (
-                  <li
-                    key={id}
-                    className={`category-chip ${i === 0 ? 'is-primary' : ''}`}
-                    title={i === 0 ? 'Основная категория — задаёт цвет карточки' : undefined}
+          <h3 className="detail-label">Категории</h3>
+          {/* The picker toggle lives at the end of the chips, like the
+           * tags' "+", rather than as a link in the heading. */}
+          <ul className="detail-chips">
+            {itemCategoryIds.map((id, i) => {
+              const chain = categoryChain(index, id)
+              const leaf = chain[chain.length - 1]
+              return (
+                <li
+                  key={id}
+                  className={`category-chip ${i === 0 ? 'is-primary' : ''}`}
+                  title={i === 0 ? 'Основная категория — задаёт цвет карточки' : undefined}
+                >
+                  <span className="category-chip-dot" style={{ background: categoryRootHue(index, id) }} />
+                  <span className="category-chip-path">
+                    {chain.length > 1 && (
+                      <span className="category-chip-parents">
+                        {chain
+                          .slice(0, -1)
+                          .map((node) => node.name)
+                          .join(' › ')}{' '}
+                        ›{' '}
+                      </span>
+                    )}
+                    <b>{leaf.name}</b>
+                  </span>
+                  <button
+                    type="button"
+                    className="category-chip-remove"
+                    aria-label={`Убрать категорию «${leaf.name}»`}
+                    onClick={() => toggleCategory(id)}
                   >
-                    <span className="category-chip-dot" style={{ background: categoryRootHue(index, id) }} />
-                    <span className="category-chip-path">
-                      {chain.length > 1 && (
-                        <span className="category-chip-parents">
-                          {chain
-                            .slice(0, -1)
-                            .map((node) => node.name)
-                            .join(' › ')}{' '}
-                          ›{' '}
-                        </span>
-                      )}
-                      <b>{leaf.name}</b>
-                    </span>
-                    <button
-                      type="button"
-                      className="category-chip-remove"
-                      aria-label={`Убрать категорию «${leaf.name}»`}
-                      onClick={() => toggleCategory(id)}
-                    >
-                      <CloseIcon />
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          ) : (
-            <p className="detail-empty">Без категории</p>
-          )}
+                    <CloseIcon />
+                  </button>
+                </li>
+              )
+            })}
+            <li>
+              <button
+                type="button"
+                className={`category-toggle ${pickerOpen ? 'is-open' : ''}`}
+                aria-expanded={pickerOpen}
+                onClick={() => setPickerOpen((v) => !v)}
+              >
+                {pickerOpen ? <CheckIcon /> : <PlusIcon />}
+                {pickerOpen ? 'Готово' : itemCategoryIds.length ? 'Категория' : 'Добавить категорию'}
+              </button>
+            </li>
+          </ul>
           {pickerOpen && (
             <CategoryPicker
               categories={categories}
@@ -1241,6 +1672,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
   // live until reload.
   const [items, setItems] = useState<CatalogItem[]>(ITEMS)
   const [categories, setCategories] = useState<CategoryNode[]>(SEED_CATEGORIES)
+  const [stockRule, setStockRule] = useState<GlobalStockRule>(DEFAULT_STOCK_RULE)
+  const globalFollowers = useMemo(() => items.filter((item) => item.levels === undefined).length, [items])
   const categoryIndex = useMemo<CategoryIndex>(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const rootCategories = useMemo(() => categories.filter((c) => c.parentId === null), [categories])
   const knownTags = useMemo(() => [...new Set(items.flatMap((item) => item.tags))].sort((a, b) => a.localeCompare(b, 'ru')), [items])
@@ -1306,12 +1739,13 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
         const matchesCategory =
           category === 'Все' || item.categoryIds.some((id) => categoryChain(categoryIndex, id)[0]?.id === category)
         const matchesStock =
-          stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= LOW_STOCK_MAX : item.qty > HIGH_STOCK_MIN)
+          stockFilter === 'all' ||
+          (stockFilter === 'low' ? itemQty(item) <= LOW_STOCK_MAX : itemQty(item) > HIGH_STOCK_MIN)
         return matchesCategory && matchesStock
       })
       .sort((a, b) => {
-        if (sort === 'qty') return b.qty - a.qty
-        if (sort === 'location') return locationPath(a).localeCompare(locationPath(b), 'ru')
+        if (sort === 'qty') return itemQty(b) - itemQty(a)
+        if (sort === 'location') return locationPath(mainLocation(a)).localeCompare(locationPath(mainLocation(b)), 'ru')
         return a.name.localeCompare(b.name, 'ru')
       })
   }, [items, categoryIndex, category, stockFilter, sort])
@@ -1449,261 +1883,265 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
 
   return (
     <CategoryIndexContext.Provider value={categoryIndex}>
-      <div className="catalog-page">
-        <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
+      <StockRuleContext.Provider value={stockRule}>
+        <div className="catalog-page">
+          <p className="catalog-draft-note">Черновой макет — данные не сохраняются, каталог не подключён к бэкенду</p>
 
-        <header className={`catalog-topbar ${searchActive ? 'search-active' : ''}`}>
-          {/* Fixed-width left zone (menu + brand) so its right edge lands on
-           * the same x as .catalog-body's sidebar/main divider below --
-           * see .catalog-topbar-left in CatalogPage.css. Purely visual
-           * symmetry, not an actual layout dependency between the two. On
-           * narrow screens this zone (specifically the brand) collapses away
-           * while search is active instead, to give the search field room. */}
-          <div className="catalog-topbar-left">
-            <button type="button" className="icon-btn menu-btn" aria-label="Меню">
-              <MenuIcon />
-            </button>
+          <header className={`catalog-topbar ${searchActive ? 'search-active' : ''}`}>
+            {/* Fixed-width left zone (menu + brand) so its right edge lands on
+             * the same x as .catalog-body's sidebar/main divider below --
+             * see .catalog-topbar-left in CatalogPage.css. Purely visual
+             * symmetry, not an actual layout dependency between the two. On
+             * narrow screens this zone (specifically the brand) collapses away
+             * while search is active instead, to give the search field room. */}
+            <div className="catalog-topbar-left">
+              <button type="button" className="icon-btn menu-btn" aria-label="Меню">
+                <MenuIcon />
+              </button>
 
-            <div className="catalog-brand">
-              <span className="catalog-brand-word">Storegizer</span>
-              <span className="catalog-brand-tab">каталог</span>
+              <div className="catalog-brand">
+                <span className="catalog-brand-word">Storegizer</span>
+                <span className="catalog-brand-tab">каталог</span>
+              </div>
             </div>
-          </div>
 
-          <div className="catalog-topbar-right">
-            <div className="catalog-search-wrap" ref={searchWrapRef} onBlur={handleSearchWrapBlur}>
-              <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
-                <span className="catalog-search-icon">
-                  <span className={`search-icon-face ${!iconMorphed ? 'is-visible' : ''}`}>
-                    <SearchIcon />
+            <div className="catalog-topbar-right">
+              <div className="catalog-search-wrap" ref={searchWrapRef} onBlur={handleSearchWrapBlur}>
+                <label className={`catalog-search ${searchActive ? 'is-open' : ''}`}>
+                  <span className="catalog-search-icon">
+                    <span className={`search-icon-face ${!iconMorphed ? 'is-visible' : ''}`}>
+                      <SearchIcon />
+                    </span>
+                    <span className={`search-icon-face ${iconMorphed ? 'is-visible' : ''}`}>
+                      <TerminalIcon />
+                    </span>
                   </span>
-                  <span className={`search-icon-face ${iconMorphed ? 'is-visible' : ''}`}>
-                    <TerminalIcon />
-                  </span>
-                </span>
-                <input
-                  ref={searchInputRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onFocus={() => setSearchFocused(true)}
-                  onKeyDown={handleSearchKeyDown}
-                  // Short on purpose -- text-overflow:ellipsis doesn't
-                  // reliably engage for an <input>'s placeholder/value in
-                  // every engine (it didn't here), so a placeholder long
-                  // enough to need truncating on a narrow mobile field just
-                  // got hard-clipped mid-word instead. The fuller
-                  // explanation (prefixes etc.) lives in the dropdown hint
-                  // once focused, not the placeholder itself.
-                  placeholder="Найти или команда..."
-                  type="search"
-                />
-              </label>
+                  <input
+                    ref={searchInputRef}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onFocus={() => setSearchFocused(true)}
+                    onKeyDown={handleSearchKeyDown}
+                    // Short on purpose -- text-overflow:ellipsis doesn't
+                    // reliably engage for an <input>'s placeholder/value in
+                    // every engine (it didn't here), so a placeholder long
+                    // enough to need truncating on a narrow mobile field just
+                    // got hard-clipped mid-word instead. The fuller
+                    // explanation (prefixes etc.) lives in the dropdown hint
+                    // once focused, not the placeholder itself.
+                    placeholder="Найти или команда..."
+                    type="search"
+                  />
+                </label>
 
-              {createPortal(
-                <div
-                  className={`search-dropdown ${searchActive ? 'is-open' : ''}`}
-                  ref={dropdownRef}
-                  style={
-                    dropdownRect
-                      ? { top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }
-                      : undefined
-                  }
-                >
-                {!searchText ? (
-                  <div className="search-hint">
-                    <p>
-                      Универсальная строка поиска — по названию, категории, месту, тегам и штрихкоду.
-                      Не связана со списком ниже: Enter или клик по результату открывает карточку предмета.
-                    </p>
-                    <ul>
-                      <li>
-                        <code>#tags: значение</code> — искать только по тегам
-                      </li>
-                      <li>
-                        <code>#cat: значение</code> — искать только по категории
-                      </li>
-                      <li>
-                        <code>#barcode: значение</code> — искать только по штрихкоду
-                      </li>
-                    </ul>
-                  </div>
-                ) : bestMatch ? (
-                  <>
-                    <div className="search-section-label">Лучшее совпадение</div>
-                    <button type="button" className="search-best-match" onClick={() => openDetail(bestMatch)}>
-                      <ItemTagCard item={bestMatch} size="lg" />
-                    </button>
-                    {restResults.length > 0 && (
-                      <>
-                        <div className="search-section-label">Ещё найдено</div>
-                        <ul className="search-result-list">
-                          {restResults.map(({ item }) => (
-                            <li
-                              key={item.id}
-                              className="search-result-row"
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => openDetail(item)}
-                              onKeyDown={(e) => handleResultKeyDown(e, item)}
-                            >
-                              <span className="search-result-icon" style={categoryStyle(categoryIndex, item)}>
-                                <ItemPhoto item={item} width={64} />
-                              </span>
-                              <span className="search-result-name">{item.name}</span>
-                              <span className="search-result-meta">{primaryCategory(categoryIndex, item)?.name}</span>
-                              <span className="item-qty">×{item.qty}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <p className="search-empty">Совпадений не найдено.</p>
+                {createPortal(
+                  <div
+                    className={`search-dropdown ${searchActive ? 'is-open' : ''}`}
+                    ref={dropdownRef}
+                    style={
+                      dropdownRect
+                        ? { top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }
+                        : undefined
+                    }
+                  >
+                  {!searchText ? (
+                    <div className="search-hint">
+                      <p>
+                        Универсальная строка поиска — по названию, категории, месту, тегам и штрихкоду.
+                        Не связана со списком ниже: Enter или клик по результату открывает карточку предмета.
+                      </p>
+                      <ul>
+                        <li>
+                          <code>#tags: значение</code> — искать только по тегам
+                        </li>
+                        <li>
+                          <code>#cat: значение</code> — искать только по категории
+                        </li>
+                        <li>
+                          <code>#barcode: значение</code> — искать только по штрихкоду
+                        </li>
+                      </ul>
+                    </div>
+                  ) : bestMatch ? (
+                    <>
+                      <div className="search-section-label">Лучшее совпадение</div>
+                      <button type="button" className="search-best-match" onClick={() => openDetail(bestMatch)}>
+                        <ItemTagCard item={bestMatch} size="lg" />
+                      </button>
+                      {restResults.length > 0 && (
+                        <>
+                          <div className="search-section-label">Ещё найдено</div>
+                          <ul className="search-result-list">
+                            {restResults.map(({ item }) => (
+                              <li
+                                key={item.id}
+                                className="search-result-row"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openDetail(item)}
+                                onKeyDown={(e) => handleResultKeyDown(e, item)}
+                              >
+                                <span className="search-result-icon" style={categoryStyle(categoryIndex, item)}>
+                                  <ItemPhoto item={item} width={64} />
+                                </span>
+                                <span className="search-result-name">{item.name}</span>
+                                <span className="search-result-meta">{primaryCategory(categoryIndex, item)?.name}</span>
+                                <span className="item-qty">×{itemQty(item)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <p className="search-empty">Совпадений не найдено.</p>
+                  )}
+                  </div>,
+                  document.body,
                 )}
-                </div>,
-                document.body,
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="icon-btn theme-toggle-btn"
-              onClick={onToggleTheme}
-              aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
-            >
-              {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
-            </button>
-          </div>
-        </header>
-
-        <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
-
-        <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
-          <aside className="catalog-sidebar">
-            {/* Fixed-width inner box -- the outer <aside> is what actually
-             * animates (width on desktop, height on mobile) and clips this
-             * with overflow:hidden, so the panel is revealed/hidden like a
-             * wipe instead of its own contents (radio labels etc.) visibly
-             * reflowing to a narrower width mid-transition. */}
-            <div className="catalog-sidebar-inner">
-              <div className="sidebar-section">
-                <h2>Сортировка</h2>
-                <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
               </div>
 
-              <div className="sidebar-section">
-                <h2>Категории</h2>
-                <RadioGroup
-                  name="category"
-                  options={[{ key: 'Все', label: 'Все' }, ...rootCategories.map((c) => ({ key: c.id, label: c.name }))]}
-                  value={category}
-                  onChange={setCategory}
+              <button
+                type="button"
+                className="icon-btn theme-toggle-btn"
+                onClick={onToggleTheme}
+                aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+              >
+                {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
+              </button>
+            </div>
+          </header>
+
+          <div className={`search-overlay ${searchActive ? 'is-open' : ''}`} onClick={closeSearch} />
+
+          <div className={`catalog-body ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+            <aside className="catalog-sidebar">
+              {/* Fixed-width inner box -- the outer <aside> is what actually
+               * animates (width on desktop, height on mobile) and clips this
+               * with overflow:hidden, so the panel is revealed/hidden like a
+               * wipe instead of its own contents (radio labels etc.) visibly
+               * reflowing to a narrower width mid-transition. */}
+              <div className="catalog-sidebar-inner">
+                <div className="sidebar-section">
+                  <h2>Сортировка</h2>
+                  <RadioGroup name="sort" options={SORTS} value={sort} onChange={setSort} />
+                </div>
+
+                <div className="sidebar-section">
+                  <h2>Категории</h2>
+                  <RadioGroup
+                    name="category"
+                    options={[{ key: 'Все', label: 'Все' }, ...rootCategories.map((c) => ({ key: c.id, label: c.name }))]}
+                    value={category}
+                    onChange={setCategory}
+                  />
+                </div>
+
+                <div className="sidebar-section">
+                  <h2>Фильтры</h2>
+                  <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
+                </div>
+              </div>
+            </aside>
+
+            <main className="catalog-main">
+              <div className="catalog-main-toolbar">
+                <span className="catalog-count">{filtered.length} предметов</span>
+
+                <div className="view-switch" role="radiogroup" aria-label="Вид отображения">
+                  <button
+                    type="button"
+                    className={view === 'list' ? 'active' : ''}
+                    aria-pressed={view === 'list'}
+                    aria-label="Список"
+                    onClick={() => setView('list')}
+                  >
+                    <ListViewIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className={view === 'grid' ? 'active' : ''}
+                    aria-pressed={view === 'grid'}
+                    aria-label="Сетка"
+                    onClick={() => setView('grid')}
+                  >
+                    <GridViewIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className={view === 'large' ? 'active' : ''}
+                    aria-pressed={view === 'large'}
+                    aria-label="Крупные карточки"
+                    onClick={() => setView('large')}
+                  >
+                    <LargeViewIcon />
+                  </button>
+                </div>
+              </div>
+
+              <div className="catalog-scroll">
+                {filtered.length === 0 ? (
+                  <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
+                ) : (
+                  <div key={view} className={`catalog-items view-${view}`}>
+                    {filtered.map((item) => {
+                      if (view === 'large') return <ItemTagCard key={item.id} item={item} size="lg" />
+                      if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
+                      return <ItemTagCard key={item.id} item={item} />
+                    })}
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+
+          {/* Mobile only (see the <=860px CSS): the inline collapsible sidebar
+           * becomes a bottom sheet instead, opened via this floating button
+           * rather than the desktop's divider-straddling chevron. */}
+          <button
+            type="button"
+            className="mobile-filters-fab"
+            aria-label={sidebarOpen ? 'Скрыть фильтры' : 'Показать фильтры'}
+            aria-pressed={sidebarOpen}
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            <FiltersIcon />
+          </button>
+
+          <div
+            className={`mobile-filters-overlay ${sidebarOpen ? 'is-open' : ''}`}
+            onClick={() => setSidebarOpen(false)}
+          />
+
+          {detailItem && (
+            <div
+              className={`item-detail-overlay ${detailClosing ? 'is-closing' : ''}`}
+              onClick={closeDetail}
+            >
+              <div
+                ref={detailRef}
+                className={`item-detail-modal ${detailClosing ? 'is-closing' : ''}`}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="detail-title"
+                tabIndex={-1}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ItemDetailCard
+                  item={detailItem}
+                  categories={categories}
+                  knownTags={knownTags}
+                  globalFollowers={globalFollowers}
+                  onChange={(patch) => updateItem(detailItem.id, patch)}
+                  onChangeGlobalRule={setStockRule}
+                  onCreateCategory={createCategory}
+                  onClose={closeDetail}
                 />
               </div>
-
-              <div className="sidebar-section">
-                <h2>Фильтры</h2>
-                <RadioGroup name="stock" options={STOCK_FILTERS} value={stockFilter} onChange={setStockFilter} />
-              </div>
             </div>
-          </aside>
-
-          <main className="catalog-main">
-            <div className="catalog-main-toolbar">
-              <span className="catalog-count">{filtered.length} предметов</span>
-
-              <div className="view-switch" role="radiogroup" aria-label="Вид отображения">
-                <button
-                  type="button"
-                  className={view === 'list' ? 'active' : ''}
-                  aria-pressed={view === 'list'}
-                  aria-label="Список"
-                  onClick={() => setView('list')}
-                >
-                  <ListViewIcon />
-                </button>
-                <button
-                  type="button"
-                  className={view === 'grid' ? 'active' : ''}
-                  aria-pressed={view === 'grid'}
-                  aria-label="Сетка"
-                  onClick={() => setView('grid')}
-                >
-                  <GridViewIcon />
-                </button>
-                <button
-                  type="button"
-                  className={view === 'large' ? 'active' : ''}
-                  aria-pressed={view === 'large'}
-                  aria-label="Крупные карточки"
-                  onClick={() => setView('large')}
-                >
-                  <LargeViewIcon />
-                </button>
-              </div>
-            </div>
-
-            <div className="catalog-scroll">
-              {filtered.length === 0 ? (
-                <p className="catalog-empty">Ничего не найдено — попробуйте другой запрос или фильтр.</p>
-              ) : (
-                <div key={view} className={`catalog-items view-${view}`}>
-                  {filtered.map((item) => {
-                    if (view === 'large') return <ItemTagCard key={item.id} item={item} size="lg" />
-                    if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
-                    return <ItemTagCard key={item.id} item={item} />
-                  })}
-                </div>
-              )}
-            </div>
-          </main>
+          )}
         </div>
-
-        {/* Mobile only (see the <=860px CSS): the inline collapsible sidebar
-         * becomes a bottom sheet instead, opened via this floating button
-         * rather than the desktop's divider-straddling chevron. */}
-        <button
-          type="button"
-          className="mobile-filters-fab"
-          aria-label={sidebarOpen ? 'Скрыть фильтры' : 'Показать фильтры'}
-          aria-pressed={sidebarOpen}
-          onClick={() => setSidebarOpen((v) => !v)}
-        >
-          <FiltersIcon />
-        </button>
-
-        <div
-          className={`mobile-filters-overlay ${sidebarOpen ? 'is-open' : ''}`}
-          onClick={() => setSidebarOpen(false)}
-        />
-
-        {detailItem && (
-          <div
-            className={`item-detail-overlay ${detailClosing ? 'is-closing' : ''}`}
-            onClick={closeDetail}
-          >
-            <div
-              ref={detailRef}
-              className={`item-detail-modal ${detailClosing ? 'is-closing' : ''}`}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="detail-title"
-              tabIndex={-1}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ItemDetailCard
-                item={detailItem}
-                categories={categories}
-                knownTags={knownTags}
-                onChange={(patch) => updateItem(detailItem.id, patch)}
-                onCreateCategory={createCategory}
-                onClose={closeDetail}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      </StockRuleContext.Provider>
     </CategoryIndexContext.Provider>
   )
 }

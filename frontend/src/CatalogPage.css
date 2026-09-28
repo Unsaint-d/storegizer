@@ -904,13 +904,11 @@
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
+/* --stock is the current level's color from the stock rule, or the
+ * category color when the item is above every level (see cardStyle()). */
 .stock-meter span.is-filled {
-  background: var(--cat);
+  background: var(--stock, var(--cat));
   box-shadow: none;
-}
-
-.is-low .stock-meter span.is-filled {
-  background: var(--remove);
 }
 
 .stock-qty {
@@ -922,8 +920,11 @@
   transition: color 0.3s ease;
 }
 
-.is-low .stock-qty {
-  color: var(--remove);
+/* Level colors are picked as fills; mixed toward --ink so the same hue
+ * still reads as text on both themes (a pale yellow as-is is unreadable
+ * on the light theme's surfaces). */
+.has-level .stock-qty {
+  color: color-mix(in srgb, var(--stock) 72%, var(--ink));
 }
 
 /* Only as wide as its content (align-self) -- a stamped label, not a
@@ -1084,8 +1085,10 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: var(--remove);
-  color: var(--remove-bg);
+  /* The lowest level's own color; text fixed dark -- every swatch is a
+   * mid/light tone, and the badge sits on a photo either way. */
+  background: var(--stock);
+  color: rgba(20, 16, 12, 0.88);
 }
 
 .tag-card-body {
@@ -1123,8 +1126,8 @@
   font-size: 124px;
 }
 
-.tag-card.is-low .tag-card-watermark {
-  color: color-mix(in srgb, var(--remove) 20%, transparent);
+.tag-card.has-level .tag-card-watermark {
+  color: color-mix(in srgb, var(--stock) 22%, transparent);
 }
 
 .tag-card-body h3 {
@@ -1307,8 +1310,8 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: color-mix(in srgb, var(--remove) 16%, transparent);
-  color: var(--remove);
+  background: color-mix(in srgb, var(--stock) 18%, transparent);
+  color: color-mix(in srgb, var(--stock) 72%, var(--ink));
 }
 
 .item-row-tags {
@@ -1587,15 +1590,73 @@
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
+/* Both facts are buttons that expand a panel: button reset, a chevron in
+ * the heading and a muted hint line at the bottom say "this opens", and
+ * hover/open get the accent ring. */
+.detail-fact-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.detail-fact-btn:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.detail-fact-btn.is-open {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.detail-fact-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.detail-fact-head .detail-label {
+  margin: 0;
+}
+
+.detail-fact-head svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transform: rotate(90deg);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.detail-fact-btn:hover .detail-fact-head svg {
+  color: var(--accent);
+}
+
+.detail-fact-btn.is-open .detail-fact-head svg {
+  transform: rotate(-90deg);
+  color: var(--accent);
+}
+
+.detail-fact-hint {
+  margin-top: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+  transition: color 0.3s ease;
+}
+
 .detail-fact-qty {
-  min-width: 150px;
+  min-width: 170px;
 }
 
 .detail-qty {
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
-  margin-bottom: 0.5rem;
 }
 
 .detail-qty-num {
@@ -1607,8 +1668,8 @@
   transition: color 0.3s ease;
 }
 
-.detail-card.is-low .detail-qty-num {
-  color: var(--remove);
+.detail-card.has-level .detail-qty-num {
+  color: color-mix(in srgb, var(--stock) 72%, var(--ink));
 }
 
 .detail-qty-unit {
@@ -1673,6 +1734,411 @@
 .detail-empty {
   font-size: 13px;
   color: var(--muted);
+}
+
+/* "+2" on a cell label: the item is kept in that many other places too. */
+.cell-label-more {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  box-shadow: inset 1px 0 0 var(--border);
+  transition: color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* ---------- detail card: places and stock panels ---------- */
+
+/* Expanded under the facts pair, full width. */
+.detail-places,
+.stock-panel {
+  grid-column: 1 / -1;
+}
+
+.detail-places {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.detail-place {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+}
+
+/* Sized to its content (not stretched), so every row's label box is only
+ * as long as its own address; margin-right pushes the rest to the edge. */
+.detail-place .cell-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.detail-place-main {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.detail-place-qty {
+  flex-shrink: 0;
+  min-width: 2.5em;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.stock-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.stock-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+}
+
+.stock-panel-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--border);
+}
+
+.stock-norm {
+  display: flex;
+  flex-direction: column;
+}
+
+.stock-norm-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stock-norm-input input,
+.level-upto input {
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+  transition: box-shadow 0.15s ease, background-color 0.3s ease;
+}
+
+.stock-norm-input input {
+  width: 72px;
+}
+
+.stock-norm-input input:focus,
+.level-upto input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.stock-hint {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.segmented {
+  display: flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.segmented button {
+  flex: 1;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.segmented button:hover {
+  color: var(--ink);
+}
+
+.segmented button.is-active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.level-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.level-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.level-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+}
+
+.level-upto {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.level-upto input {
+  width: 58px;
+}
+
+.level-count {
+  min-width: 4.5em;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.level-swatches {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.level-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.level-swatch:hover {
+  transform: scale(1.12);
+}
+
+.level-swatch.is-selected {
+  box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3.5px var(--ink);
+}
+
+.level-remove {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.level-remove:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.level-remove svg {
+  width: 13px;
+  height: 13px;
+}
+
+.level-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 4px 10px 4px 8px;
+  border: 1.5px dashed var(--border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.level-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.level-add svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 0-100 % of the norm, one segment per level, --cat for "in stock". */
+.rule-preview {
+  position: relative;
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: visible;
+  background: var(--surface);
+}
+
+.rule-preview > span:not(.rule-preview-marker) {
+  height: 100%;
+}
+
+.rule-preview > span:first-child {
+  border-radius: 999px 0 0 999px;
+}
+
+.rule-preview-ok {
+  background: var(--cat);
+  border-radius: 0 999px 999px 0;
+}
+
+.rule-preview-marker {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 18px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--ink);
+  box-shadow: 0 0 0 2px var(--surface-2);
+}
+
+.stock-global-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.stock-global-toggle svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+
+.stock-global-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.stock-global-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.stock-global-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* Same family as the tags' "+": a dashed pill at the end of the chips.
+ * Open, it turns into a solid "Готово" -- an obvious way back out. */
+.category-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 28px;
+  padding: 0 12px 0 9px;
+  border: 1.5px dashed var(--border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.category-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.category-toggle.is-open {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.category-toggle svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* ---------- detail card: categories ---------- */
@@ -1864,24 +2330,31 @@
   color: var(--muted);
 }
 
-/* Indented past the toggle column so "+" rows line up with the labels. */
+/* Indented past the toggle column so "+" rows line up with the labels.
+ * Ghosted until hovered or focused: there's one at the end of every open
+ * level, and at full accent strength they outshouted the categories
+ * themselves. */
 .cat-tree-add {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   margin-left: 24px;
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: none;
   border-radius: 8px;
   background: none;
   font: inherit;
-  font-size: 12.5px;
-  color: var(--accent);
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.45;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease;
 }
 
-.cat-tree-add:hover {
+.cat-tree-add:hover,
+.cat-tree-add:focus-visible {
+  opacity: 1;
+  color: var(--accent);
   background: var(--surface);
 }
 
@@ -2309,7 +2782,9 @@
     color: #fff;
   }
 
-  .tag-card.is-low .item-tile-qty {
-    color: #ff9d8f;
+  /* Mixed toward white, not --ink: this sits on the tile's dark scrim in
+   * both themes. */
+  .tag-card.has-level .item-tile-qty {
+    color: color-mix(in srgb, var(--stock) 75%, #fff);
   }
 }
