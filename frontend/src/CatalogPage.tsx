@@ -1374,6 +1374,37 @@ function LevelEditor({
   // The color being dragged in the open picker, shown on its row's
   // swatch before it's committed.
   const [draft, setDraft] = useState<{ id: string; color: string } | null>(null)
+  // The open picker's row (swatch + picker) -- a press inside it isn't
+  // "outside".
+  const openItemRef = useRef<HTMLLIElement | null>(null)
+
+  // Escape or a press anywhere outside the open picker closes it. Both are
+  // capture-phase listeners on the document: that runs before the detail
+  // card's own Escape handler (bubble phase, also on the document), so
+  // stopping propagation here closes just the picker, not the whole card.
+  // Outside presses aren't swallowed -- a press on another level's swatch
+  // closes this picker and its click then opens that one.
+  useEffect(() => {
+    if (pickerFor === null) return
+    function handleKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      const item = openItemRef.current
+      // Focus would otherwise drop to the page as the picker goes inert.
+      if (item?.contains(document.activeElement)) item.querySelector<HTMLButtonElement>('.level-color')?.focus()
+      setPickerFor(null)
+    }
+    function handlePointerDown(e: globalThis.PointerEvent) {
+      if (openItemRef.current?.contains(e.target as Node)) return
+      setPickerFor(null)
+    }
+    document.addEventListener('keydown', handleKeyDown, true)
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true)
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+    }
+  }, [pickerFor])
 
   function patch(id: string, change: Partial<StockLevel>) {
     onChange(levels.map((l) => (l.id === id ? { ...l, ...change } : l)))
@@ -1392,7 +1423,7 @@ function LevelEditor({
           const pickerOpen = pickerFor === level.id
           const shownColor = draft?.id === level.id ? draft.color : level.color
           return (
-            <li key={level.id} className="level-item">
+            <li key={level.id} className="level-item" ref={pickerOpen ? openItemRef : undefined}>
               <div className="level-row">
                 <label className="level-upto">
                   до
