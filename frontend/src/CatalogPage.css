@@ -529,8 +529,8 @@
   border-radius: 16px;
 }
 
-/* The hover lift itself lives on .item-card-large (shared with the
- * large-card view mode) -- this button is just an interactive wrapper
+/* The hover lift itself lives on .tag-card (shared with the catalog
+ * views) -- this button is just an interactive wrapper
  * around it, so it doesn't need its own separate hover transform. */
 .search-best-match:focus-visible {
   outline: 2px solid var(--accent);
@@ -556,21 +556,24 @@
   outline-offset: -2px;
 }
 
+/* Photo thumbnail; the inset ring in the item's category hue ties it to
+ * the same color coding as the cards. */
 .search-result-icon {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
+  position: relative;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
+  overflow: hidden;
   background: var(--surface-2);
-  color: var(--accent);
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-.search-result-icon svg {
-  width: 15px;
-  height: 15px;
+.search-result-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 -2px 0 var(--cat);
 }
 
 .search-result-name {
@@ -839,74 +842,7 @@
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
 }
 
-.item-card {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  padding: 1rem;
-  border-radius: 14px;
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--border);
-  transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
-}
-
-.view-grid .item-card {
-  align-items: flex-start;
-}
-
-.item-card:hover {
-  transform: translateY(-2px);
-}
-
-.item-icon {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--accent);
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-.item-icon svg {
-  width: 20px;
-  height: 20px;
-}
-
-.item-body {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.item-body h3 {
-  font-family: var(--font-body);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink);
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 0.3s ease;
-}
-
-.item-location {
-  font-size: 12.5px;
-  color: var(--muted);
-  transition: color 0.3s ease;
-}
-
-.item-barcode {
-  align-self: flex-start;
-  font-size: 11px;
-}
-
+/* Still used by the search dropdown's result rows. */
 .item-qty {
   flex-shrink: 0;
   font-family: var(--font-mono);
@@ -916,12 +852,352 @@
   transition: color 0.3s ease;
 }
 
-/* In the card's flex row (not absolutely positioned) so it takes its own
- * width and the title's ellipsis stops before it instead of running
- * underneath. Line box matches the h3's (15px x 1.5) so the two sit on
- * the same line. */
-.view-grid .item-qty {
-  line-height: 22.5px;
+/* ---------- shared card parts: photo, stock, cell label, barcode ---------- */
+
+/* Every card sets --cat (its category's hue) inline -- see categoryStyle()
+ * in CatalogPage.tsx. It's only ever used for fills, never text, so the
+ * same hue works on both themes. */
+
+.item-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.item-photo-placeholder {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--cat, var(--accent)) 16%, var(--surface));
+  color: var(--cat, var(--accent));
+  transition: background-color 0.3s ease;
+}
+
+.item-photo-placeholder svg {
+  width: 34%;
+  max-width: 44px;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.stock-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.stock-meter {
+  flex: 1;
+  min-width: 0;
+  max-width: 160px;
+  display: flex;
+  gap: 3px;
+}
+
+.stock-meter span {
+  flex: 1;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.stock-meter span.is-filled {
+  background: var(--cat);
+  box-shadow: none;
+}
+
+.is-low .stock-meter span.is-filled {
+  background: var(--remove);
+}
+
+.stock-qty {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  transition: color 0.3s ease;
+}
+
+.is-low .stock-qty {
+  color: var(--remove);
+}
+
+/* Only as wide as its content (align-self) -- a stamped label, not a
+ * full-width bar. */
+.cell-label {
+  align-self: flex-start;
+  max-width: 100%;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+  font-size: 12px;
+  transition: box-shadow 0.3s ease;
+}
+
+.cell-label-tag {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--cat) 24%, var(--surface));
+  color: var(--ink);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.cell-label-path {
+  display: flex;
+  min-width: 0;
+  padding: 3px 8px;
+  white-space: nowrap;
+  color: var(--ink);
+  transition: color 0.3s ease;
+}
+
+/* The parents give way first; the cell itself only truncates if it alone
+ * is wider than the label can get. */
+.cell-label-parents {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  transition: color 0.3s ease;
+}
+
+.cell-label-path b {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.barcode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  color: var(--ink);
+  transition: color 0.3s ease;
+}
+
+.barcode svg {
+  display: block;
+  width: 100%;
+  height: 26px;
+  fill: currentColor;
+}
+
+.barcode-digits {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  transition: color 0.3s ease;
+}
+
+.item-tag-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ---------- tag card (grid + large views, search best match, detail) ---------- */
+
+.tag-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
+}
+
+.tag-card:hover {
+  transform: translateY(-3px);
+}
+
+/* The category-colored band along the bottom of the photo is the card's
+ * main color cue. */
+.tag-card-photo {
+  position: relative;
+  flex-shrink: 0;
+  height: 128px;
+  background: var(--surface);
+  border-bottom: 3px solid var(--cat);
+  transition: background-color 0.3s ease;
+}
+
+.tag-card-lg .tag-card-photo {
+  height: 176px;
+}
+
+/* Fixed dark glass rather than theme colors -- it sits on a photo, not on
+ * the page, so it needs the same contrast in both themes. */
+.tag-card-category {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(20, 16, 12, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.tag-card-category::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cat);
+}
+
+.tag-card-low {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--remove);
+  color: var(--remove-bg);
+}
+
+.tag-card-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem 0.9rem 0.9rem;
+  overflow: hidden;
+}
+
+/* Content stacks above the watermark numeral. */
+.tag-card-body > :not(.tag-card-watermark) {
+  position: relative;
+}
+
+/* The qty as a huge faded numeral behind the body -- readable as "how
+ * many" from across the grid before any text is. */
+.tag-card-watermark {
+  position: absolute;
+  right: 0.1em;
+  bottom: -0.3em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 96px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--cat) 17%, transparent);
+  pointer-events: none;
+  user-select: none;
+  transition: color 0.3s ease;
+}
+
+.tag-card-lg .tag-card-watermark {
+  font-size: 124px;
+}
+
+.tag-card.is-low .tag-card-watermark {
+  color: color-mix(in srgb, var(--remove) 20%, transparent);
+}
+
+.tag-card-body h3 {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  transition: color 0.3s ease;
+}
+
+.tag-card-lg .tag-card-body h3 {
+  font-size: 17px;
+}
+
+.tag-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* The tear-off stub: perforated edge with a semicircular notch on each
+ * side. The notches are circles in the page-surface color centered on the
+ * card's edges; the card's overflow:hidden clips each to a half-circle
+ * "bite". Every place a card sits (catalog frame, search dropdown, detail
+ * modal) has a --surface background, so the bites read as cut-outs. */
+/* No background of its own: a child's background paints over the card's
+ * inset-shadow border, and in --surface it also matched the page around
+ * the card -- the stub dissolved into the page and the barcode looked
+ * detached. The perforation and notches alone set it apart. */
+.tag-card-stub {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0.6rem 0.9rem 0.7rem;
+  border-top: 1.5px dashed var(--border);
+  transition: border-color 0.3s ease;
+}
+
+.tag-card-stub::before,
+.tag-card-stub::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background-color 0.3s ease;
+}
+
+.tag-card-stub::before {
+  left: -6px;
+}
+
+.tag-card-stub::after {
+  right: -6px;
+}
+
+.tag-card-stub .barcode {
+  max-width: 210px;
+  margin: 0 auto;
+}
+
+/* Only shown by the mobile tile layout (see the <=860px .view-grid rules
+ * at the end of this file). */
+.item-tile-meta {
+  display: none;
 }
 
 /* ---------- list rows ---------- */
@@ -934,6 +1210,7 @@
   position: relative;
   display: flex;
   align-items: stretch;
+  min-height: 96px;
   border-radius: 14px;
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--border);
@@ -945,31 +1222,42 @@
   transform: translateX(2px);
 }
 
-.item-row-media {
+.item-row-photo {
+  position: relative;
   flex-shrink: 0;
-  width: 64px;
-  display: grid;
-  place-items: center;
-  border-right: 1px solid var(--border);
-  color: var(--accent);
-  transition: border-color 0.3s ease, color 0.3s ease;
+  width: 104px;
+  background: var(--surface);
+  border-right: 3px solid var(--cat);
+  transition: background-color 0.3s ease;
 }
 
-.item-row-media svg {
-  width: 24px;
-  height: 24px;
+.item-row-photo .item-photo {
+  position: absolute;
+  inset: 0;
 }
 
+/* A size container so the tags can drop out based on the row's own width
+ * (which also depends on the sidebar), not the viewport's. */
 .item-row-body {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  container-type: inline-size;
+}
+
+.item-row-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-width: 0;
 }
 
 .item-row-heading h3 {
+  min-width: 0;
   font-family: var(--font-body);
   font-size: 15px;
   font-weight: 600;
@@ -981,40 +1269,46 @@
   transition: color 0.3s ease;
 }
 
-.item-row-heading .item-location {
-  margin-top: 0.15rem;
-}
-
-.item-row-meta {
-  display: flex;
+.item-row-category {
+  flex-shrink: 0;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11.5px;
   color: var(--muted);
-  transition: border-color 0.3s ease, color 0.3s ease;
-}
-
-.item-row-meta .item-barcode {
-  flex-shrink: 0;
-}
-
-.item-row-meta .item-qty {
-  flex-shrink: 0;
-}
-
-.item-row-meta-sep {
-  flex-shrink: 0;
-  color: var(--border);
   transition: color 0.3s ease;
 }
 
-/* Wraps the separator + tags pair so both can be hidden as one unit on
- * mobile (below) -- display:contents keeps it invisible to layout
- * otherwise, so .item-row-meta's flex children are unaffected. */
-.item-row-tags-group {
-  display: contents;
+.item-row-category::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cat);
+}
+
+/* Fixed height so rows with and without the "Заканчивается" pill line up. */
+.item-row-stock {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+  height: 20px;
+}
+
+.item-row-stock .stock-line {
+  flex: 0 1 210px;
+  min-width: 110px;
+}
+
+.item-row-low {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--remove) 16%, transparent);
+  color: var(--remove);
 }
 
 .item-row-tags {
@@ -1022,14 +1316,51 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+  transition: color 0.3s ease;
 }
 
-@media (max-width: 640px) {
-  /* Row already shows barcode + qty on mobile's narrower width -- tags
-   * on top of that crowded the line and were usually truncated anyway. */
-  .item-row-tags-group {
+/* Too narrow to show a useful chunk of the tags next to the stock line
+ * (and the low-stock pill) -- hide them rather than leave one letter and
+ * an ellipsis. */
+@container (max-width: 420px) {
+  .item-row-tags {
     display: none;
   }
+}
+
+/* Same tear-off stub as the tag card, turned on its side: vertical
+ * perforation with notches at the top and bottom edges. */
+.item-row-stub {
+  position: relative;
+  flex-shrink: 0;
+  width: 150px;
+  display: grid;
+  place-items: center;
+  padding: 0.6rem 0.8rem;
+  border-left: 1.5px dashed var(--border);
+  transition: border-color 0.3s ease;
+}
+
+.item-row-stub::before,
+.item-row-stub::after {
+  content: '';
+  position: absolute;
+  left: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background-color 0.3s ease;
+}
+
+.item-row-stub::before {
+  top: -6px;
+}
+
+.item-row-stub::after {
+  bottom: -6px;
 }
 
 .item-row-info {
@@ -1055,94 +1386,26 @@
   height: 18px;
 }
 
-/* ---------- large cards (view-large + the search best-match slot) ---------- */
+@media (max-width: 640px) {
+  .item-row {
+    min-height: 88px;
+  }
 
-.item-card-large {
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-  background: var(--surface-2);
-  /* Inset border on every edge like the other card types, plus a thicker
-   * accent stripe along the top specifically -- without an actual photo
-   * yet (the media block is just an icon on a flat fill), the top edge
-   * was the hardest to tell apart from whatever sits above the card. */
-  box-shadow: inset 0 0 0 1px var(--border), inset 0 6px 0 var(--accent);
-  overflow: hidden;
-  transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
-}
+  .item-row-photo {
+    width: 80px;
+  }
 
-.item-card-large:hover {
-  transform: translateY(-3px);
-}
+  .item-row-body {
+    padding: 0.6rem 0.75rem;
+  }
 
-.item-card-large-media {
-  display: grid;
-  place-items: center;
-  height: 128px;
-  background: var(--surface);
-  color: var(--accent);
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-.item-card-large-media svg {
-  width: 44px;
-  height: 44px;
-}
-
-.item-card-large-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem 1.1rem 1.1rem;
-}
-
-.item-card-large-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.item-card-large-heading h3 {
-  font-family: var(--font-body);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ink);
-  margin: 0;
-  transition: color 0.3s ease;
-}
-
-.item-card-large-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0.2rem 0 0.3rem;
-}
-
-.item-category-pill,
-.item-tag-pill {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-/* Category used to stand out via the accent color, but that made it read
- * as a call-to-action rather than a label -- same neutral treatment as
- * tags now, just bolder/brighter text to still mark it as the primary
- * one at a glance. */
-.item-category-pill {
-  background: var(--surface);
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-
-.item-tag-pill {
-  background: var(--surface);
-  color: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--border);
+  /* No room for the stub or the tags next to the stock line on a phone --
+   * the barcode is in the large view and the detail card. */
+  .item-row-stub,
+  .item-row-tags,
+  .item-row-category {
+    display: none;
+  }
 }
 
 /* ---------- item detail modal (placeholder) ---------- */
@@ -1378,51 +1641,77 @@
   }
 }
 
-/* Only shown by the mobile tile layout below; the desktop grid card shows
- * location and qty its own way. */
-.item-tile-meta {
-  display: none;
-}
-
-/* Mobile grid view: compact square tiles -- a large icon, the name, and a
- * "cell | ×qty" line. A quick visual scan mode between the detailed list
- * and the large cards, ~3 per row on a phone. The full location path and
- * the barcode are left to the other two views. */
+/* Mobile grid view: the tag card restyled as a compact square tile -- the
+ * photo fills the whole tile (category band along its bottom edge) with
+ * the name and a "cell | ×qty" line over a dark scrim. ~3 per row on a
+ * phone. Stub, cell label, meter and watermark are left to the list and
+ * large views; low stock shrinks to a red dot on the photo. Text colors on
+ * the scrim are fixed, not theme tokens: it's always dark over a photo. */
 @media (max-width: 860px) {
   .view-grid {
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
     gap: 0.6rem;
   }
 
-  .view-grid .item-card {
+  .view-grid .tag-card {
     aspect-ratio: 1;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 6px 0.3rem;
+    border-radius: 12px;
   }
 
-  /* 40% is about the most that still fits the icon, a two-line name and
-   * the meta line inside a square at the smallest tile width (96px) --
-   * any larger and the tile stretches taller than it is wide. The glyph
-   * fills more of its plate to stay about as big as before the meta line
-   * took some of the height. */
-  .view-grid .item-icon {
-    width: 40%;
+  .view-grid .tag-card-photo {
+    position: absolute;
+    inset: 0;
     height: auto;
-    aspect-ratio: 1;
-    border-radius: 10px;
   }
 
-  .view-grid .item-icon svg {
-    width: 72%;
-    height: 72%;
+  /* Glyph raised so the scrim doesn't cover it. */
+  .view-grid .item-photo-placeholder {
+    place-items: start center;
+    padding-top: 16%;
   }
 
-  .view-grid .item-body {
-    flex: 0 0 auto;
-    width: 100%;
+  .view-grid .tag-card-category,
+  .view-grid .tag-card-watermark,
+  .view-grid .cell-label,
+  .view-grid .stock-line,
+  .view-grid .tag-card-stub {
+    display: none;
+  }
+
+  .view-grid .tag-card-low {
+    top: 5px;
+    right: 5px;
+    width: 10px;
+    height: 10px;
+    padding: 0;
+    font-size: 0;
+    box-shadow: 0 0 0 2px rgba(20, 16, 12, 0.55);
+  }
+
+  /* bottom: 3px keeps the photo's category band visible below the scrim. */
+  .view-grid .tag-card-body {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 3px;
+    flex: none;
+    gap: 2px;
+    padding: 18px 0.3rem 5px;
+    background: linear-gradient(to top, rgba(12, 10, 8, 0.9) 0%, rgba(12, 10, 8, 0.72) 55%, rgba(12, 10, 8, 0) 100%);
+  }
+
+  .view-grid .tag-card-body h3 {
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.15;
+    text-align: center;
+    /* Real hyphenation where the browser has a Russian dictionary (Android
+     * Chrome, iOS Safari -- needs <html lang="ru">); overflow-wrap is the
+     * fallback that still breaks a word too long for the tile instead of
+     * letting it spill out. */
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    overflow-wrap: anywhere;
   }
 
   .view-grid .item-tile-meta {
@@ -1434,8 +1723,7 @@
     min-width: 0;
     font-size: 11px;
     line-height: 1.2;
-    color: var(--muted);
-    transition: color 0.3s ease;
+    color: rgba(255, 255, 255, 0.78);
   }
 
   /* Body font rather than mono -- it's much narrower, so more of the cell
@@ -1447,7 +1735,6 @@
     white-space: nowrap;
   }
 
-  /* --border alone is nearly invisible against the tile's --surface-2. */
   .item-tile-sep {
     flex-shrink: 0;
     opacity: 0.45;
@@ -1458,29 +1745,10 @@
     font-family: var(--font-mono);
     font-size: 10.5px;
     font-weight: 600;
+    color: #fff;
   }
 
-  .view-grid .item-body h3 {
-    font-size: 12px;
-    line-height: 1.15;
-    text-align: center;
-    white-space: normal;
-    /* Real hyphenation where the browser has a Russian dictionary (Android
-     * Chrome, iOS Safari -- needs <html lang="ru">); overflow-wrap is the
-     * fallback that still breaks a word too long for the tile instead of
-     * letting it spill out. */
-    -webkit-hyphens: auto;
-    hyphens: auto;
-    overflow-wrap: anywhere;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-  }
-
-  .view-grid .item-location,
-  .view-grid .item-barcode,
-  .view-grid .item-qty {
-    display: none;
+  .tag-card.is-low .item-tile-qty {
+    color: #ff9d8f;
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
@@ -34,7 +34,13 @@ type CatalogItem = {
   qty: number
   barcode: string
   tags: string[]
+  // Fallback glyph for the photo slot when there's no photo or it fails to
+  // load.
   icon: keyof typeof ITEM_ICONS
+  // Unsplash photo id (the part after "photo-" in images.unsplash.com
+  // URLs). Stock placeholders for the draft -- real items will carry their
+  // own photos.
+  photo?: string
 }
 
 const ITEM_ICONS = {
@@ -56,43 +62,141 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'location', label: 'По местоположению' },
 ]
 
+const LOW_STOCK_MAX = 2
+const HIGH_STOCK_MIN = 5
+
 const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'Любой остаток' },
-  { key: 'low', label: 'Мало (≤ 2 шт.)' },
-  { key: 'high', label: 'Много (> 5 шт.)' },
+  { key: 'low', label: `Мало (≤ ${LOW_STOCK_MAX} шт.)` },
+  { key: 'high', label: `Много (> ${HIGH_STOCK_MIN} шт.)` },
 ]
 
+// There's no per-item "normal stock" figure yet, so the meter is a fixed
+// scale: one segment per unit, full at this many.
+const STOCK_METER_SEGMENTS = 8
+
+// One muted hue per category, picked to sit well on both themes' warm
+// surfaces. Used for fills (spine, meter, tints), never as text color.
+const CATEGORY_HUES: Record<string, string> = {
+  Лекарства: '#df7a6c',
+  Пайка: '#c27ab8',
+  Монтажное: '#d9a24e',
+  Дроновое: '#a484d8',
+  Еда: '#8fb35a',
+  Гигиена: '#4fb0a5',
+  Авто: '#6f95d6',
+  Разное: '#9a8f80',
+}
+
+// Categories are created from item cards (see CATEGORIES), so new ones
+// won't be in the map above -- they get a stable hue from their name.
+const FALLBACK_HUES = ['#d98a5a', '#5fa3c9', '#b7a24a', '#8b9bd9', '#c97f95', '#6fb58a']
+
+function categoryHue(category: string): string {
+  const known = CATEGORY_HUES[category]
+  if (known) return known
+  let hash = 0
+  for (const ch of category) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+  return FALLBACK_HUES[Math.abs(hash) % FALLBACK_HUES.length]
+}
+
+function categoryStyle(item: CatalogItem): CSSProperties {
+  return { '--cat': categoryHue(item.category) } as CSSProperties
+}
+
+function photoUrl(id: string, width: number): string {
+  return `https://images.unsplash.com/photo-${id}?w=${width}&q=70&auto=format&fit=crop`
+}
+
 const ITEMS: CatalogItem[] = [
-  { id: 1, name: 'Консервированные томаты', category: 'Еда', location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar' },
-  { id: 2, name: 'Туалетная бумага', category: 'Гигиена', location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box' },
-  { id: 3, name: 'Аптечка первой помощи', category: 'Лекарства', location: ['Прихожая', 'Верхняя полка'], qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box' },
-  { id: 4, name: 'Зимняя резина, комплект', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag' },
-  { id: 5, name: 'Крупа гречневая', category: 'Еда', location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar' },
-  { id: 6, name: 'Лампочки LED E27', category: 'Монтажное', location: ['Кладовая', 'Ящик 3'], qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box' },
-  { id: 7, name: 'Моторное масло 5W-30', category: 'Авто', location: ['Гараж', 'Стеллаж B'], qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar' },
-  { id: 8, name: 'Стиральный порошок', category: 'Гигиена', location: ['Балкон', 'Шкаф'], qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box' },
-  { id: 9, name: 'Батарейки АА', category: 'Дроновое', location: ['Кухня', 'Ящик стола'], qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag' },
-  { id: 10, name: 'Консервы тунец', category: 'Еда', location: ['Кладовая', 'Полка 2'], qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar' },
-  { id: 11, name: 'Автомобильные щётки', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag' },
-  { id: 12, name: 'Полотенца банные', category: 'Гигиена', location: ['Ванная', 'Верхняя полка'], qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box' },
+  { id: 1, name: 'Консервированные томаты', category: 'Еда', location: ['Кухня', 'Кухонный шкаф', 'Полка 2'], qty: 6, barcode: '4607123456781', tags: ['консервы', 'еда'], icon: 'jar', photo: '1612204103209-fb81a3384c78' },
+  { id: 2, name: 'Туалетная бумага', category: 'Гигиена', location: ['Ванная', 'Левый шкаф', 'Нижняя дверца', 'Верхняя полка'], qty: 12, barcode: '4607123456798', tags: ['гигиена', 'расходники'], icon: 'box', photo: '1584556812952-905ffd0c611a' },
+  { id: 3, name: 'Аптечка первой помощи', category: 'Лекарства', location: ['Прихожая', 'Верхняя полка'], qty: 1, barcode: '4607123456804', tags: ['медицина', 'экстренное'], icon: 'box', photo: '1563260324-5ebeedc8af7c' },
+  { id: 4, name: 'Зимняя резина, комплект', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 4, barcode: '4607123456811', tags: ['шины', 'сезонное'], icon: 'tag', photo: '1571335746824-742511d49bce' },
+  { id: 5, name: 'Крупа гречневая', category: 'Еда', location: ['Кухня', 'Кладовая', 'Полка 1'], qty: 3, barcode: '4607123456828', tags: ['крупы', 'еда'], icon: 'jar', photo: '1719060038791-012d4a471d91' },
+  { id: 6, name: 'Лампочки LED E27', category: 'Монтажное', location: ['Кладовая', 'Ящик 3'], qty: 8, barcode: '4607123456835', tags: ['электрика', 'освещение'], icon: 'box', photo: '1552862750-746b8f6f7f25' },
+  { id: 7, name: 'Моторное масло 5W-30', category: 'Авто', location: ['Гараж', 'Стеллаж B'], qty: 2, barcode: '4607123456842', tags: ['автохимия', 'жидкости'], icon: 'jar', photo: '1590227763209-821c686b932f' },
+  { id: 8, name: 'Стиральный порошок', category: 'Гигиена', location: ['Балкон', 'Шкаф'], qty: 1, barcode: '4607123456859', tags: ['гигиена', 'стирка'], icon: 'box', photo: '1582735689369-4fe89db7114c' },
+  { id: 9, name: 'Батарейки АА', category: 'Дроновое', location: ['Кухня', 'Ящик стола'], qty: 16, barcode: '4607123456866', tags: ['электрика', 'расходники'], icon: 'tag', photo: '1576834975354-ee694be1f0d1' },
+  { id: 10, name: 'Консервы тунец', category: 'Еда', location: ['Кладовая', 'Полка 2'], qty: 5, barcode: '4607123456873', tags: ['консервы', 'еда'], icon: 'jar', photo: '1590769383363-5681e57ff10f' },
+  { id: 11, name: 'Автомобильные щётки', category: 'Авто', location: ['Гараж', 'Стеллаж A'], qty: 2, barcode: '4607123456880', tags: ['уход', 'автохимия'], icon: 'tag', photo: '1508786250378-b165238d6e8b' },
+  { id: 12, name: 'Полотенца банные', category: 'Гигиена', location: ['Ванная', 'Верхняя полка'], qty: 4, barcode: '4607123456897', tags: ['текстиль', 'гигиена'], icon: 'box', photo: '1523471826770-c437b4636fe6' },
 ]
 
 function locationPath(item: CatalogItem): string {
   return item.location.join(':')
 }
 
-// Cards show just the bin/cell itself (the path's last segment) by
-// default -- the full "Ванная:Левый шкаф:Нижняя дверца:Верхняя полка"
-// chain is rarely what you need at a glance, and mostly just pushed other
-// content around or got truncated anyway. The full path is still one
-// hover away via the native title tooltip (see .item-location usages).
+// The bin/cell itself (the path's last segment) is what you need at a
+// glance; cards emphasize it and let the parent rooms/shelves truncate
+// first. The full path is always in the native title tooltip.
 function locationCell(item: CatalogItem): string {
   return item.location[item.location.length - 1] ?? ''
 }
 
-function locationShort(item: CatalogItem): string {
-  const last = locationCell(item)
-  return item.location.length > 1 ? `…${last}` : last
+function locationParents(item: CatalogItem): string {
+  return item.location.slice(0, -1).join(' › ')
+}
+
+// ---------- EAN-13 ----------
+//
+// Draws the item's actual barcode (scannable when the check digit is
+// valid) instead of a decorative stripe pattern -- this is a barcode-
+// driven inventory, so the label should carry the real thing.
+
+const EAN_L = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011']
+const EAN_G = ['0100111', '0110011', '0011011', '0100001', '0011101', '0111001', '0000101', '0010001', '0001001', '0010111']
+const EAN_R = ['1110010', '1100110', '1101100', '1000010', '1011100', '1001110', '1010000', '1000100', '1001000', '1110100']
+const EAN_PARITY = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL']
+
+// 95 modules: guard, 6 left digits, center guard, 6 right digits, guard.
+// The first digit isn't drawn; it's encoded in the left half's L/G parity.
+function ean13Modules(code: string): string | null {
+  if (!/^\d{13}$/.test(code)) return null
+  const d = [...code].map(Number)
+  const parity = EAN_PARITY[d[0]]
+  let bits = '101'
+  for (let i = 1; i <= 6; i++) bits += (parity[i - 1] === 'L' ? EAN_L : EAN_G)[d[i]]
+  bits += '01010'
+  for (let i = 7; i <= 12; i++) bits += EAN_R[d[i]]
+  return bits + '101'
+}
+
+const EAN_GUARD_MODULES = new Set([0, 1, 2, 45, 46, 47, 48, 49, 92, 93, 94])
+
+// Adjacent dark modules merged into one bar each -- fewer nodes, and no
+// hairline seams between them when the SVG is scaled to a fractional
+// width. Guards never merge with digit bars (every digit pattern starts
+// or ends with a light module next to a guard).
+function barcodeBars(bits: string): { x: number; w: number; guard: boolean }[] {
+  const bars = []
+  for (let i = 0; i < bits.length; ) {
+    if (bits[i] !== '1') {
+      i++
+      continue
+    }
+    let j = i
+    while (bits[j] === '1') j++
+    bars.push({ x: i, w: j - i, guard: EAN_GUARD_MODULES.has(i) })
+    i = j
+  }
+  return bars
+}
+
+function Barcode({ value }: { value: string }) {
+  const bits = ean13Modules(value)
+  return (
+    <div className="barcode">
+      {bits && (
+        <svg viewBox="0 0 95 30" preserveAspectRatio="none" shapeRendering="crispEdges" aria-hidden="true">
+          {barcodeBars(bits).map((bar) => (
+            <rect key={bar.x} x={bar.x} y={0} width={bar.w} height={bar.guard ? 30 : 26} />
+          ))}
+        </svg>
+      )}
+      <span className="barcode-digits">{value}</span>
+    </div>
+  )
 }
 
 // ---------- search: prefix parsing + fuzzy matching ----------
@@ -267,40 +371,141 @@ function TerminalIcon() {
   )
 }
 
-// Row card for the list view: photo/icon slot, title + location, a
-// barcode/qty/top-tags meta line below a divider, and an info button --
-// matches the row layout provided as a reference.
+// Photo with a category-tinted placeholder (the item's glyph) for items
+// without one, or when the image fails to load (offline, removed photo).
+function ItemPhoto({ item, width }: { item: CatalogItem; width: number }) {
+  const [failed, setFailed] = useState(false)
+  if (!item.photo || failed) {
+    return (
+      <span className="item-photo item-photo-placeholder">
+        <ItemIcon icon={item.icon} />
+      </span>
+    )
+  }
+  return (
+    <img
+      className="item-photo"
+      src={photoUrl(item.photo, width)}
+      srcSet={`${photoUrl(item.photo, width)} 1x, ${photoUrl(item.photo, width * 2)} 2x`}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
+function StockMeter({ qty }: { qty: number }) {
+  const filled = Math.min(qty, STOCK_METER_SEGMENTS)
+  return (
+    <span className="stock-meter" aria-hidden="true">
+      {Array.from({ length: STOCK_METER_SEGMENTS }, (_, i) => (
+        <span key={i} className={i < filled ? 'is-filled' : undefined} />
+      ))}
+    </span>
+  )
+}
+
+function StockLine({ item }: { item: CatalogItem }) {
+  return (
+    <div className="stock-line" aria-label={`Остаток: ${item.qty} шт.`}>
+      <StockMeter qty={item.qty} />
+      <span className="stock-qty">×{item.qty}</span>
+    </div>
+  )
+}
+
+// "ЯЧ" label + path, with the cell itself in bold and always visible --
+// the parent rooms/shelves are what give way (ellipsis) when it's long.
+function CellLabel({ item }: { item: CatalogItem }) {
+  const parents = locationParents(item)
+  return (
+    <p className="cell-label" title={locationPath(item)}>
+      <span className="cell-label-tag">ЯЧ</span>
+      <span className="cell-label-path">
+        {parents && <span className="cell-label-parents">{parents} ›&nbsp;</span>}
+        <b>{locationCell(item)}</b>
+      </span>
+    </p>
+  )
+}
+
+function isLowStock(item: CatalogItem): boolean {
+  return item.qty <= LOW_STOCK_MAX
+}
+
+// The catalog's main card, styled as a warehouse tag: photo on top,
+// category-colored stock meter and a big faded qty numeral in the body,
+// and a tear-off stub with the item's real EAN-13 barcode. `lg` is the
+// roomier variant for the large view, the search best match and the
+// detail modal (adds the tags). At <=860px the grid view restyles this
+// same markup into a compact square tile (see .view-grid in the CSS), which
+// is what .item-tile-meta is for.
+function ItemTagCard({ item, size = 'md' }: { item: CatalogItem; size?: 'md' | 'lg' }) {
+  const low = isLowStock(item)
+  return (
+    <article className={`tag-card tag-card-${size} ${low ? 'is-low' : ''}`} style={categoryStyle(item)}>
+      <div className="tag-card-photo">
+        <ItemPhoto item={item} width={size === 'lg' ? 520 : 360} />
+        <span className="tag-card-category">{item.category}</span>
+        {low && <span className="tag-card-low">Заканчивается</span>}
+      </div>
+      <div className="tag-card-body">
+        <span className="tag-card-watermark" aria-hidden="true">
+          {item.qty}
+        </span>
+        <h3>{item.name}</h3>
+        <CellLabel item={item} />
+        <StockLine item={item} />
+        {size === 'lg' && item.tags.length > 0 && (
+          <div className="tag-card-tags">
+            {item.tags.map((tag) => (
+              <span key={tag} className="item-tag-pill">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="item-tile-meta" title={locationPath(item)}>
+          <span className="item-tile-cell">{locationCell(item)}</span>
+          <span className="item-tile-sep" aria-hidden="true">
+            |
+          </span>
+          <span className="item-tile-qty">×{item.qty}</span>
+        </p>
+      </div>
+      <div className="tag-card-stub">
+        <Barcode value={item.barcode} />
+      </div>
+    </article>
+  )
+}
+
+// List view: the same tag language laid out as a row -- photo, name +
+// category, cell and stock, then the barcode stub behind a vertical
+// perforation (desktop only) and the info button.
 function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: (item: CatalogItem) => void }) {
+  const low = isLowStock(item)
   const topTags = item.tags.slice(0, 3).join(', ')
   return (
-    <article className="item-row">
-      <div className="item-row-media">
-        <ItemIcon icon={item.icon} />
+    <article className={`item-row ${low ? 'is-low' : ''}`} style={categoryStyle(item)}>
+      <div className="item-row-photo">
+        <ItemPhoto item={item} width={180} />
       </div>
       <div className="item-row-body">
         <div className="item-row-heading">
           <h3>{item.name}</h3>
-          <p className="item-location" title={locationPath(item)}>
-            {locationShort(item)}
-          </p>
+          <span className="item-row-category">{item.category}</span>
         </div>
-        <div className="item-row-meta">
-          <code className="item-barcode">{item.barcode}</code>
-          <span className="item-row-meta-sep" aria-hidden="true">
-            |
-          </span>
-          <span className="item-qty">×{item.qty}</span>
-          {/* Wrapped together (not a bare fragment) so the pair can be
-           * hidden as one unit on mobile -- see .item-row-tags-group. */}
-          {topTags && (
-            <span className="item-row-tags-group">
-              <span className="item-row-meta-sep" aria-hidden="true">
-                |
-              </span>
-              <span className="item-row-tags">{topTags}</span>
-            </span>
-          )}
+        <CellLabel item={item} />
+        <div className="item-row-stock">
+          <StockLine item={item} />
+          {low && <span className="item-row-low">Заканчивается</span>}
+          {topTags && <span className="item-row-tags">{topTags}</span>}
         </div>
+      </div>
+      <div className="item-row-stub">
+        <Barcode value={item.barcode} />
       </div>
       <button
         type="button"
@@ -310,38 +515,6 @@ function ItemListRow({ item, onOpenDetail }: { item: CatalogItem; onOpenDetail: 
       >
         <InfoIcon />
       </button>
-    </article>
-  )
-}
-
-// Shared "large card" template: used both for the catalog's large-card
-// view mode and the search dropdown's best-match slot, per the request
-// that they follow the same layout (its real visual design comes later --
-// this is just the informative shell for now).
-function ItemLargeCard({ item }: { item: CatalogItem }) {
-  return (
-    <article className="item-card-large">
-      <div className="item-card-large-media">
-        <ItemIcon icon={item.icon} />
-      </div>
-      <div className="item-card-large-body">
-        <div className="item-card-large-heading">
-          <h3>{item.name}</h3>
-          <span className="item-qty">×{item.qty}</span>
-        </div>
-        <p className="item-location" title={locationPath(item)}>
-          {locationShort(item)}
-        </p>
-        <div className="item-card-large-meta">
-          <span className="item-category-pill">{item.category}</span>
-          {item.tags.map((tag) => (
-            <span key={tag} className="item-tag-pill">
-              {tag}
-            </span>
-          ))}
-        </div>
-        <code className="item-barcode">{item.barcode}</code>
-      </div>
     </article>
   )
 }
@@ -471,7 +644,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
     return ITEMS.filter((item) => {
       const matchesCategory = category === 'Все' || item.category === category
       const matchesStock =
-        stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= 2 : item.qty > 5)
+        stockFilter === 'all' || (stockFilter === 'low' ? item.qty <= LOW_STOCK_MAX : item.qty > HIGH_STOCK_MIN)
       return matchesCategory && matchesStock
     }).sort((a, b) => {
       if (sort === 'qty') return b.qty - a.qty
@@ -658,7 +831,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                 <>
                   <div className="search-section-label">Лучшее совпадение</div>
                   <button type="button" className="search-best-match" onClick={() => openDetail(bestMatch)}>
-                    <ItemLargeCard item={bestMatch} />
+                    <ItemTagCard item={bestMatch} size="lg" />
                   </button>
                   {restResults.length > 0 && (
                     <>
@@ -673,8 +846,8 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                             onClick={() => openDetail(item)}
                             onKeyDown={(e) => handleResultKeyDown(e, item)}
                           >
-                            <span className="search-result-icon">
-                              <ItemIcon icon={item.icon} />
+                            <span className="search-result-icon" style={categoryStyle(item)}>
+                              <ItemPhoto item={item} width={64} />
                             </span>
                             <span className="search-result-name">{item.name}</span>
                             <span className="search-result-meta">{item.category}</span>
@@ -777,28 +950,9 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
             ) : (
               <div key={view} className={`catalog-items view-${view}`}>
                 {filtered.map((item) => {
-                  if (view === 'large') return <ItemLargeCard key={item.id} item={item} />
+                  if (view === 'large') return <ItemTagCard key={item.id} item={item} size="lg" />
                   if (view === 'list') return <ItemListRow key={item.id} item={item} onOpenDetail={openDetail} />
-                  return (
-                    <article key={item.id} className="item-card">
-                      <div className="item-icon">
-                        <ItemIcon icon={item.icon} />
-                      </div>
-                      <div className="item-body">
-                        <h3>{item.name}</h3>
-                        <p className="item-location" title={locationPath(item)}>
-                          {locationShort(item)}
-                        </p>
-                        <code className="item-barcode">{item.barcode}</code>
-                      </div>
-                      <span className="item-qty">×{item.qty}</span>
-                      <p className="item-tile-meta" title={locationPath(item)}>
-                        <span className="item-tile-cell">{locationCell(item)}</span>
-                        <span className="item-tile-sep" aria-hidden="true">|</span>
-                        <span className="item-tile-qty">×{item.qty}</span>
-                      </p>
-                    </article>
-                  )
+                  return <ItemTagCard key={item.id} item={item} />
                 })}
               </div>
             )}
@@ -841,7 +995,7 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
                 <CloseIcon />
               </button>
             </div>
-            <ItemLargeCard item={detailItem} />
+            <ItemTagCard item={detailItem} size="lg" />
             <p className="item-detail-note">
               Плейсхолдер — полноценная карточка предмета (редактирование, история операций и т.д.) будет
               реализована позже.
