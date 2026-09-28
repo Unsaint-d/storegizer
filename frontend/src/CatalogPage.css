@@ -1037,14 +1037,11 @@
 }
 
 /* The category-colored band along the bottom of the photo is the card's
- * main color cue. Its own rounded top corners and overflow (not just the
- * card's) matter for the photo's view transition into the detail card:
- * a named element is snapshotted without its ancestors' clipping. */
+ * main color cue. overflow:hidden keeps the hover zoom inside the box. */
 .tag-card-photo {
   position: relative;
   flex-shrink: 0;
   height: 128px;
-  border-radius: 14px 14px 0 0;
   overflow: hidden;
   background: var(--surface);
   border-bottom: 3px solid var(--cat);
@@ -1118,26 +1115,6 @@
   .item-row.is-clickable:hover .item-photo {
     transform: none;
   }
-}
-
-/* The photo's flight between a catalog card and the detail card (see
- * openFromCard). Snapshots fill their box (cover) instead of the default
- * width-fit, since the card photo and the detail header differ in aspect
- * ratio. */
-::view-transition-group(detail-photo) {
-  animation-duration: 0.4s;
-  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
-}
-
-::view-transition-old(detail-photo),
-::view-transition-new(detail-photo) {
-  height: 100%;
-  object-fit: cover;
-}
-
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 0.3s;
 }
 
 .tag-card-lg .tag-card-photo {
@@ -1322,7 +1299,6 @@
   position: relative;
   flex-shrink: 0;
   width: 104px;
-  border-radius: 14px 0 0 14px;
   overflow: hidden;
   background: var(--surface);
   border-right: 3px solid var(--cat);
@@ -1597,17 +1573,12 @@
   flex-direction: column;
 }
 
-/* Named for the view transition from a catalog card's photo; rounded to
- * the modal's inner corners itself for the same reason as .tag-card-photo. */
 .detail-photo {
   position: relative;
   flex-shrink: 0;
   height: 220px;
-  border-radius: 17px 17px 0 0;
-  overflow: hidden;
   background: var(--surface-2);
   border-bottom: 4px solid var(--cat);
-  view-transition-name: detail-photo;
   transition: background-color 0.3s ease;
 }
 
@@ -2980,7 +2951,6 @@
     position: absolute;
     inset: 0;
     height: auto;
-    border-radius: 12px;
   }
 
   /* Glyph raised so the scrim doesn't cover it. */

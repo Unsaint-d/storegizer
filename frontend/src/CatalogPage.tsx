@@ -12,7 +12,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from 'react'
-import { createPortal, flushSync } from 'react-dom'
+import { createPortal } from 'react-dom'
 import { BarcodeIcon, BoxIcon, JarIcon, MoonIcon, SunIcon, TagIcon } from './LoginPage'
 import './CatalogPage.css'
 
@@ -680,24 +680,8 @@ function pluralPlaces(n: number): string {
 }
 
 // Opens an item's detail card from a catalog card; `card` is the card's
-// element, used to animate its photo into the detail card.
+// element, so focus can go back to it once the detail card closes.
 type OpenItem = (item: CatalogItem, card: HTMLElement) => void
-
-// The view-transition-name the card photo and the detail card's photo
-// share while one morphs into the other (see openFromCard).
-const DETAIL_PHOTO_TRANSITION = 'detail-photo'
-
-function canViewTransition(): boolean {
-  return 'startViewTransition' in document && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-function isInCatalogViewport(el: HTMLElement): boolean {
-  const scroller = el.closest('.catalog-scroll')
-  if (!scroller) return false
-  const r = el.getBoundingClientRect()
-  const s = scroller.getBoundingClientRect()
-  return r.bottom > s.top && r.top < s.bottom
-}
 
 function focusCardLink(card: HTMLElement | null) {
   if (card?.isConnected) card.querySelector<HTMLElement>('.card-link')?.focus({ preventScroll: true })
@@ -744,7 +728,7 @@ function ItemTagCard({ item, size = 'md', onOpen }: { item: CatalogItem; size?: 
       style={cardStyle(index, item, status)}
       onClick={onOpen && cardClickHandler(item, onOpen)}
     >
-      <div className="tag-card-photo" data-item-photo="">
+      <div className="tag-card-photo">
         <ItemPhoto item={item} width={size === 'lg' ? 520 : 360} />
         {category && (
           <span className="tag-card-category" title={category.path}>
@@ -802,7 +786,7 @@ function ItemListRow({ item, onOpen }: { item: CatalogItem; onOpen: OpenItem }) 
       style={cardStyle(index, item, status)}
       onClick={cardClickHandler(item, onOpen)}
     >
-      <div className="item-row-photo" data-item-photo="">
+      <div className="item-row-photo">
         <ItemPhoto item={item} width={180} />
       </div>
       <div className="item-row-body">
@@ -2074,49 +2058,15 @@ export default function CatalogPage({ theme, onToggleTheme }: CatalogPageProps) 
     clearQueryTimeoutRef.current = setTimeout(() => setQuery(''), SEARCH_DROPDOWN_CLOSE_MS)
   }
 
-  // Opening from a catalog card morphs the card's photo into the detail
-  // card's header (a View Transition: the photo is the one named element,
-  // everything else cross-fades), and closing flies it back. The name has
-  // to be unique in each snapshot, so it's moved between the card photo and
-  // the detail photo (which carries it in CSS) inside the update callback.
-  // Falls back to the plain open/close animation where the API is missing
-  // or reduced motion is on.
   function openFromCard(item: CatalogItem, card: HTMLElement) {
     openerRef.current = card
-    const photo = card.querySelector<HTMLElement>('[data-item-photo]')
-    if (!photo || !canViewTransition()) {
-      openDetail(item)
-      return
-    }
-    photo.style.viewTransitionName = DETAIL_PHOTO_TRANSITION
-    document.startViewTransition(() => {
-      photo.style.viewTransitionName = ''
-      flushSync(() => openDetail(item))
-    })
+    openDetail(item)
   }
 
   function closeDetail() {
-    const opener = openerRef.current
+    returnFocusRef.current = openerRef.current
     openerRef.current = null
-    const photo = opener?.isConnected ? opener.querySelector<HTMLElement>('[data-item-photo]') : null
-    // Only fly back to a card that's actually on screen -- one scrolled out
-    // of the list would send the photo off the edge.
-    if (!opener || !photo || !canViewTransition() || !isInCatalogViewport(photo)) {
-      returnFocusRef.current = opener
-      setDetailClosing(true)
-      return
-    }
-    const transition = document.startViewTransition(() => {
-      photo.style.viewTransitionName = DETAIL_PHOTO_TRANSITION
-      flushSync(() => {
-        setDetailId(null)
-        setDetailClosing(false)
-      })
-    })
-    transition.finished.finally(() => {
-      photo.style.viewTransitionName = ''
-      focusCardLink(opener)
-    })
+    setDetailClosing(true)
   }
 
   useEffect(() => {
