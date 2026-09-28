@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -144,10 +145,11 @@ const STOCK_FILTERS: { key: FilterKey; label: string }[] = [
 
 const STOCK_METER_SEGMENTS = 8
 
-// Starting colors handed to new levels, in order, before falling back to
-// generated ones -- a level can be any color (it's picked freely), these
-// are just sensible defaults that work as fills on both themes.
-const LEVEL_COLOR_SUGGESTIONS = ['#e5796b', '#e79a55', '#e6c65c', '#7fb561', '#6f9ad6', '#a484d8']
+// Offered as presets inside the color picker, and handed to new levels in
+// order before falling back to generated colors. A level can still be any
+// color; these are just sensible defaults that work as fills on both
+// themes.
+const LEVEL_COLOR_PRESETS = ['#e5796b', '#e79a55', '#e6c65c', '#7fb561', '#6f9ad6']
 
 function hslToHex(h: number, s: number, l: number): string {
   const a = s * Math.min(l, 1 - l)
@@ -165,7 +167,7 @@ function hslToHex(h: number, s: number, l: number): string {
 // (golden angle) at the same muted saturation/lightness.
 function nextLevelColor(levels: StockLevel[]): string {
   const used = new Set(levels.map((l) => l.color.toLowerCase()))
-  const free = LEVEL_COLOR_SUGGESTIONS.find((c) => !used.has(c))
+  const free = LEVEL_COLOR_PRESETS.find((c) => !used.has(c))
   return free ?? hslToHex((levels.length * 137.5) % 360, 0.62, 0.62)
 }
 
@@ -1177,6 +1179,51 @@ function RulePreview({ levels, marker }: { levels: StockLevel[]; marker?: number
   )
 }
 
+// The native picker fires `input` on every step of a drag. Committing each
+// one to the item re-rendered the whole catalog (and restarted every card's
+// color transition) per step, which lagged badly -- so while picking only
+// this swatch updates (local draft), and the color reaches the item once,
+// on the native `change` event, when the user settles on it.
+function LevelColorInput({
+  value,
+  presetsId,
+  label,
+  onCommit,
+}: {
+  value: string
+  presetsId: string
+  label: string
+  onCommit: (color: string) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    function handleChange() {
+      onCommit(input!.value)
+      setDraft(null)
+    }
+    input.addEventListener('change', handleChange)
+    return () => input.removeEventListener('change', handleChange)
+  }, [onCommit])
+
+  const shown = draft ?? value
+  return (
+    <label className="level-color" style={{ background: shown }}>
+      <input
+        ref={inputRef}
+        type="color"
+        list={presetsId}
+        value={shown}
+        aria-label={label}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+    </label>
+  )
+}
+
 // Rows keep the order they were added in (not sorted by threshold) so a
 // row doesn't jump away from under the cursor mid-edit; evaluation sorts.
 function LevelEditor({
@@ -1197,8 +1244,17 @@ function LevelEditor({
     onChange([...levels, { id: crypto.randomUUID(), upTo: Math.min(top + 20, 100), color: nextLevelColor(levels) }])
   }
 
+  const presetsId = useId()
+
   return (
     <div className="level-editor">
+      {/* Shown as preset swatches inside the native picker (Chromium and
+       * Safari; Firefox ignores it and just shows its own picker). */}
+      <datalist id={presetsId}>
+        {LEVEL_COLOR_PRESETS.map((color) => (
+          <option key={color} value={color} />
+        ))}
+      </datalist>
       {levels.length === 0 && <p className="detail-empty">Уровней нет — остаток всегда в цвете категории.</p>}
       <ul className="level-list">
         {levels.map((level) => (
@@ -1222,14 +1278,12 @@ function LevelEditor({
             <span className="level-count">≤ {Math.floor((norm * level.upTo) / 100)} шт.</span>
             {/* Any color, not a fixed palette -- a rule can have more
              * levels than any fixed set of swatches. */}
-            <label className="level-color" style={{ background: level.color }}>
-              <input
-                type="color"
-                value={level.color}
-                aria-label={`Цвет уровня до ${level.upTo} %`}
-                onChange={(e) => patch(level.id, { color: e.target.value })}
-              />
-            </label>
+            <LevelColorInput
+              value={level.color}
+              presetsId={presetsId}
+              label={`Цвет уровня до ${level.upTo} %`}
+              onCommit={(color) => patch(level.id, { color })}
+            />
             <button
               type="button"
               className="level-remove"
