@@ -1388,6 +1388,54 @@ function ColorPicker({
   )
 }
 
+// A whole-number field that can be left empty (or hold anything) while
+// typing -- nothing is applied until editing ends (blur, or Enter). Then a
+// valid value (an integer within min..max) is committed; an empty or
+// invalid one is dropped and the previous value comes back. Committing
+// only at the end, not per keystroke, also means typing "150" into a
+// 0-100 field can't leave "15" behind on the way.
+function DraftNumberInput({
+  value,
+  min,
+  max = Number.POSITIVE_INFINITY,
+  placeholder,
+  onCommit,
+  'aria-label': ariaLabel,
+}: {
+  value: number | undefined
+  min: number
+  max?: number
+  placeholder?: string
+  onCommit: (value: number) => void
+  'aria-label': string
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={Number.isFinite(max) ? max : undefined}
+      step={1}
+      value={draft ?? (value === undefined ? '' : String(value))}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== null) {
+          const n = Number(draft)
+          const valid = draft.trim() !== '' && Number.isInteger(n) && n >= min && n <= max
+          if (valid && n !== value) onCommit(n)
+        }
+        setDraft(null)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+      }}
+    />
+  )
+}
+
 // Rows keep the order they were added in (not sorted by threshold) so a
 // row doesn't jump away from under the cursor mid-edit; evaluation sorts.
 // A level's swatch opens its color picker inline under the row (one at a
@@ -1459,17 +1507,12 @@ function LevelEditor({
               <div className="level-row">
                 <label className="level-upto">
                   до
-                  <input
-                    type="number"
+                  <DraftNumberInput
+                    value={level.upTo}
                     min={0}
                     max={100}
-                    step={1}
-                    value={level.upTo}
                     aria-label="Порог уровня, процентов от нормы"
-                    onChange={(e) => {
-                      const v = e.target.valueAsNumber
-                      if (!Number.isNaN(v)) patch(level.id, { upTo: Math.min(Math.max(Math.round(v), 0), 100) })
-                    }}
+                    onCommit={(upTo) => patch(level.id, { upTo })}
                   />
                   %
                 </label>
@@ -1539,16 +1582,12 @@ function StockPanel({
         <label className="stock-norm">
           <span className="detail-label">Норма (100 %)</span>
           <span className="stock-norm-input">
-            <input
-              type="number"
+            <DraftNumberInput
+              value={item.norm}
               min={1}
-              step={1}
-              value={item.norm ?? ''}
               placeholder={String(globalRule.defaultNorm)}
-              onChange={(e) => {
-                const v = e.target.valueAsNumber
-                onChange({ norm: Number.isNaN(v) || v < 1 ? undefined : Math.round(v) })
-              }}
+              aria-label="Норма, штук"
+              onCommit={(norm) => onChange({ norm })}
             />
             шт.
           </span>
